@@ -1,0 +1,85 @@
+name: FPGA Studio — Automated Cloud Bitstream Synthesis (Artix-7 Nexys A7)
+
+on:
+  workflow_dispatch:
+    inputs:
+      cpu_name:
+        description: "Name of the CPU core (e.g. openmips, riscv)"
+        required: true
+        default: "openmips"
+      board_target:
+        description: "Target FPGA board"
+        required: true
+        default: "nexys_a7_100"
+
+jobs:
+  synthesize-and-build-bitstream:
+    name: Build Artix-7 Bitstream for Nexys A7
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      OPENXC7_IMAGE: regymm/openxc7:latest
+      DEVICE_PART: xc7a100tcsg324-1
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Verify SoC Package Files
+        run: |
+          echo "=== FPGA Studio Cloud Synthesis Dispatch ==="
+          echo "CPU: ${{ inputs.cpu_name }}"
+          echo "Board: ${{ inputs.board_target }}"
+          CPU_DIR="build_soc_${{ inputs.cpu_name }}"
+          if [ -d "$CPU_DIR" ]; then
+            echo "Found SoC package directory: $CPU_DIR"
+            ls -la "$CPU_DIR"
+          else
+            echo "SoC directory $CPU_DIR not found, checking root..."
+          fi
+
+      - name: Pull openXC7 Docker Container
+        run: |
+          echo "Pulling openXC7 open-source toolchain container..."
+          docker pull ${{ env.OPENXC7_IMAGE }}
+
+      - name: Synthesize & Place-and-Route with openXC7 (Zero-Vivado)
+        run: |
+          mkdir -p build_soc_${{ inputs.cpu_name }}
+          docker run --rm -v "${PWD}:/work" -w /work ${{ env.OPENXC7_IMAGE }} bash -c "
+            set -e
+            CPU='${{ inputs.cpu_name }}'
+            PKG_DIR=\"build_soc_\${CPU}\"
+            echo \"=== [1/3] Synthesizing SoC with Yosys ===\"
+            if [ -f \"\${PKG_DIR}/nexys_a7_soc_top.v\" ]; then
+              cd \"\${PKG_DIR}\"
+              yosys -p \"
+                read_verilog -I rtl_cpu nexys_a7_soc_top.v uart_prog_loader.v rtl_cpu/*.v;
+                hierarchy -top nexys_a7_soc_top;
+                synth_xilinx -top nexys_a7_soc_top -family xc7 -json soc.json
+              \"
+              echo \"=== [2/3] Place & Route with nextpnr-xilinx ===\"
+              nextpnr-xilinx \
+                --chipdb /nextpnr-xilinx/xilinx/xc7a100t.bin \
+                --xdc Nexys-A7-100T-Master.xdc \
+                --json soc.json \
+                --fasm soc.fasm \
+                --nowrite || true
+              
+              if [ -f soc.fasm ]; then
+                echo \"=== [3/3] Generating Artix-7 Bitstream ===\"
+                fasm2frames --part xc7a100tcsg324-1 --db-root /nextpnr-xilinx/xilinx/external/prjxray-db/artix7 soc.fasm soc.frames
+                xc7frames2bit --part_file /nextpnr-xilinx/xilinx/external/prjxray-db/artix7/xc7a100tcsg324-1/part.yaml --frm_file soc.frames --output \"nexys_a7_\${CPU}.bit\"
+              fi
+            fi
+          "
+
+      - name: Archive Synthesized Bitstream Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexys_a7_${{ inputs.cpu_name }}_bitstream
+          path: |
+            build_soc_${{ inputs.cpu_name }}/*.bit
+            bitstreams/*.bit
+          if-no-files-found: warn

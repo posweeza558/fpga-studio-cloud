@@ -1,0 +1,237 @@
+# -*- coding: utf-8 -*-
+"""
+FPGA Studio — Cloud Synthesis Dispatcher (GitHub Actions CI/CD)
+Enables 1-Click Zero-Vivado Bitstream Generation for Custom CPUs on Artix-7.
+"""
+
+import io
+import json
+import os
+import shutil
+import time
+import urllib.error
+import urllib.request
+import zipfile
+from typing import Callable, Dict, List, Optional, Tuple
+
+
+def prepare_cloud_synthesis_package(
+    project_dir: str,
+    cpu_name: str,
+    arch: str = "mips",
+    cpu_hdl_path: Optional[str] = None,
+) -> str:
+    """
+    Ensure the complete synthesizable SoC Auto-Wrapper package is ready for cloud dispatch.
+    Returns the path to the prepared package directory.
+    """
+    from core.hdl_generator import export_vivado_soc_package
+
+    pkg_dir = os.path.join(project_dir, f"build_soc_{cpu_name}")
+    os.makedirs(pkg_dir, exist_ok=True)
+    export_vivado_soc_package(pkg_dir, instructions=[], arch=arch, cpu_hdl_path=cpu_hdl_path)
+    return pkg_dir
+
+
+def check_github_repo_workflow(
+    repo_slug: str,
+    github_token: Optional[str] = None,
+) -> Tuple[bool, str]:
+    """
+    Check if the target GitHub repository is accessible and has Actions enabled.
+    repo_slug format: "owner/repo"
+    """
+    api_url = f"https://api.github.com/repos/{repo_slug}/actions/workflows"
+    headers = {"User-Agent": "FPGA-Studio", "Accept": "application/vnd.github.v3+json"}
+    if github_token:
+        headers["Authorization"] = f"token {github_token}"
+
+    try:
+        req = urllib.request.Request(api_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            count = data.get("total_count", 0)
+            return True, f"พบคลาวด์เวิร์กโฟลว์ {count} รายการในคลัง {repo_slug}"
+    except urllib.error.HTTPError as ex:
+        if ex.code == 404:
+            return False, f"ไม่พบคลัง {repo_slug} หรือคลังเป็น Private (ต้องระบุ GitHub Token)"
+        elif ex.code == 401:
+            return False, "GitHub Token ไม่ถูกต้องหรือหมดอายุ"
+        return False, f"GitHub API Error ({ex.code}): {ex.reason}"
+    except Exception as ex:
+        return False, f"ไม่สามารถเชื่อมต่อ GitHub ({ex})"
+
+
+def trigger_cloud_synthesis_workflow(
+    repo_slug: str,
+    github_token: str,
+    cpu_name: str = "openmips",
+    board_target: str = "nexys_a7_100",
+    ref: str = "main",
+    workflow_id: str = "fpga_studio_synthesis.yml",
+) -> Tuple[bool, str]:
+    """
+    Trigger workflow_dispatch on GitHub Actions via REST API.
+    Requires a GitHub Token with 'repo' and 'workflow' scope.
+    """
+    api_url = f"https://api.github.com/repos/{repo_slug}/actions/workflows/{workflow_id}/dispatches"
+    headers = {
+        "User-Agent": "FPGA-Studio",
+        "Authorization": f"token {github_token}",
+        "Accept": "application/vnd.github.v3+json",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "ref": ref,
+        "inputs": {
+            "cpu_name": cpu_name,
+            "board_target": board_target,
+        },
+    }
+
+    try:
+        data_bytes = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(api_url, data=data_bytes, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            if resp.status in (200, 204):
+                return True, f"ส่งคำสั่งสังเคราะห์ฮาร์ดแวร์ SoC สำหรับ '{cpu_name}' ขึ้น Cloud Actions สำเร็จ!"
+            return False, f"GitHub Actions ส่งกลับรหัสสถานะ: {resp.status}"
+    except urllib.error.HTTPError as ex:
+        msg = ex.read().decode("utf-8", errors="ignore")
+        return False, f"เรียก GitHub Actions ล้มเหลว ({ex.code}): {msg}"
+    except Exception as ex:
+        return False, f"เกิดข้อผิดพลาดในการเรียก Cloud Dispatch: {ex}"
+
+
+def get_latest_workflow_run(
+    repo_slug: str,
+    github_token: Optional[str] = None,
+    workflow_id: str = "fpga_studio_synthesis.yml",
+) -> Tuple[bool, Optional[dict], str]:
+    """
+    Query the most recent workflow run for status tracking.
+    """
+    api_url = f"https://api.github.com/repos/{repo_slug}/actions/workflows/{workflow_id}/runs?per_page=1"
+    headers = {"User-Agent": "FPGA-Studio", "Accept": "application/vnd.github.v3+json"}
+    if github_token:
+        headers["Authorization"] = f"token {github_token}"
+
+    try:
+        req = urllib.request.Request(api_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            runs = data.get("workflow_runs", [])
+            if not runs:
+                return True, None, "ยังไม่มีประวัติการรันในเวิร์กโฟลว์นี้"
+            return True, runs[0], "ดึงข้อมูลการรันล่าสุดสำเร็จ"
+    except Exception as ex:
+        return False, None, f"ไม่สามารถดึงข้อมูลสถานะการรัน ({ex})"
+
+
+def get_run_artifacts(
+    repo_slug: str,
+    run_id: int,
+    github_token: Optional[str] = None,
+) -> Tuple[bool, List[dict], str]:
+    """
+    Retrieve artifacts generated by a workflow run.
+    """
+    api_url = f"https://api.github.com/repos/{repo_slug}/actions/runs/{run_id}/artifacts"
+    headers = {"User-Agent": "FPGA-Studio", "Accept": "application/vnd.github.v3+json"}
+    if github_token:
+        headers["Authorization"] = f"token {github_token}"
+
+    try:
+        req = urllib.request.Request(api_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            artifacts = data.get("artifacts", [])
+            return True, artifacts, f"พบไฟล์ผลลัพธ์ (Artifacts) ทั้งหมด {len(artifacts)} รายการ"
+    except Exception as ex:
+        return False, [], f"ไม่สามารถดึงรายการ Artifacts ({ex})"
+
+
+def download_synthesized_bitstream_from_url(
+    artifact_download_url: str,
+    dest_bit_path: str,
+    github_token: Optional[str] = None,
+    on_log: Optional[Callable[[str], None]] = None,
+) -> Tuple[bool, str]:
+    """
+    Download and extract the generated .bit file artifact from cloud synthesis.
+    """
+    headers = {"User-Agent": "FPGA-Studio"}
+    if github_token:
+        headers["Authorization"] = f"token {github_token}"
+
+    try:
+        if on_log:
+            on_log(f"📥 กำลังดาวน์โหลด Bitstream สำเร็จรูปจากคลาวด์...")
+        req = urllib.request.Request(artifact_download_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=45) as resp:
+            zip_bytes = resp.read()
+
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+            bit_names = [f for f in z.namelist() if f.endswith(".bit")]
+            if not bit_names:
+                return False, "ไม่พบไฟล์ .bit ในไฟล์ที่ดาวน์โหลดมาจากคลาวด์"
+            target_name = bit_names[0]
+            os.makedirs(os.path.dirname(os.path.abspath(dest_bit_path)), exist_ok=True)
+            with open(dest_bit_path, "wb") as f_out:
+                f_out.write(z.read(target_name))
+
+        if on_log:
+            on_log(f"✅ บันทึกไฟล์ Bitstream เรียบร้อย: {dest_bit_path}")
+        return True, "ดาวน์โหลด Bitstream จากคลาวด์สำเร็จเรียบร้อย พร้อมแฟลชลงบอร์ด!"
+    except Exception as ex:
+        err = f"ดาวน์โหลดไฟล์จากคลาวด์ล้มเหลว: {ex}"
+        if on_log:
+            on_log(f"❌ {err}")
+        return False, err
+
+
+def export_cloud_bundle_zip(
+    project_dir: str,
+    cpu_name: str,
+    cpu_arch: str = "mips",
+    cpu_hdl_path: Optional[str] = None,
+    zip_out_path: Optional[str] = None,
+    on_log: Optional[Callable[[str], None]] = None,
+) -> Tuple[bool, str, Optional[str]]:
+    """
+    Export ready-to-push ZIP bundle containing SoC package and GitHub Actions workflow.
+    Students can drag & drop this onto their GitHub repository to run Cloud Synthesis immediately.
+    """
+    app_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    pkg_dir = prepare_cloud_synthesis_package(project_dir, cpu_name, arch=cpu_arch, cpu_hdl_path=cpu_hdl_path)
+
+    if not zip_out_path:
+        zip_out_path = os.path.join(project_dir, f"fpga_cloud_package_{cpu_name}.zip")
+
+    try:
+        if on_log:
+            on_log(f"📦 กำลังรวมไฟล์แพ็กเกจ Cloud Synthesis ลงใน: {os.path.basename(zip_out_path)}...")
+
+        workflow_src = os.path.join(app_root, ".github", "workflows", "fpga_studio_synthesis.yml")
+
+        with zipfile.ZipFile(zip_out_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            # Include workflow file
+            if os.path.isfile(workflow_src):
+                zf.write(workflow_src, arcname=".github/workflows/fpga_studio_synthesis.yml")
+
+            # Include entire build_soc_{cpu_name} folder
+            for root, _, files in os.walk(pkg_dir):
+                for fn in files:
+                    full_p = os.path.join(root, fn)
+                    rel_p = os.path.relpath(full_p, project_dir)
+                    zf.write(full_p, arcname=rel_p)
+
+        if on_log:
+            sz_kb = os.path.getsize(zip_out_path) // 1024
+            on_log(f"✅ สร้างแพ็กเกจสำเร็จ: {zip_out_path} ({sz_kb} KB)")
+        return True, "สร้างแพ็กเกจ Cloud Bundle สำเร็จเรียบร้อย", zip_out_path
+    except Exception as ex:
+        err = f"สร้างแพ็กเกจ ZIP ล้มเหลว: {ex}"
+        if on_log:
+            on_log(f"❌ {err}")
+        return False, err, None

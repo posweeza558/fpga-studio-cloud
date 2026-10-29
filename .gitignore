@@ -1,0 +1,14 @@
+# Ignore heavy downloaded toolchains
+toolchain/oss-cad-suite/
+toolchain/*.tgz
+toolchain/*.tar.gz
+toolchain/*.zip
+
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Netlist temporary output
+build_soc_*/soc_netlist.json
