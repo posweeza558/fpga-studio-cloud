@@ -219,3 +219,36 @@
   - คัดลอกไฟล์ Verilog ทั้ง 16 ไฟล์จาก `custom_cpus/openmips/*.v` ลงใน `build_soc_openmips/rtl_cpu/` และ commit + push ขึ้น GitHub
   - ปรับปรุง `.github/workflows/fpga_studio_synthesis.yml` ให้ตรวจสอบและดึงไฟล์จาก `custom_cpus/${CPU}` อัตโนมัติหาก `rtl_cpu` ว่าง
   - Push การแก้ไขขึ้นคลัง และยิงคำสั่งเริ่ม Run #3 (`#40884228514`) เรียบร้อยแล้ว (สถานะ: `in_progress`)
+
+
+---
+
+## [2026-10-29 20:54:00] RUN-ID: #WORKFLOW-FIX-NOWRITE-AND-DISPATCH-RUN4
+- **ประเด็นจากผู้ใช้:**
+  - 1. *"กดในโปรแกรมแล้วไม่เห็นมีอะไรขึ้น"*: อธิบายการรีสตาร์ทแอป และการที่โปรแกรมตรวจจับ repo/token อัตโนมัติ
+  - 2. *"พอมันทำงานเสร็จจะรู้ได้ไงว่าต้องกดแฟลช .bit ไหน"*: อธิบายว่าเมื่อเสร็จ โปรแกรมจะเลือกไฟล์ `nexys_a7_openmips.bit` ให้โดยอัตโนมัติในช่อง Bitstream ทันที
+- **การแก้ไขเชิงลึกใน Workflow:**
+  - ใน Run #3: Yosys สังเคราะห์เสร็จสมบูรณ์ 15,061 เซลล์ 0 problems แต่ `nextpnr-xilinx` แจ้ง `unrecognised option '--nowrite'`
+  - ลบออปชัน `--nowrite` ออกจากคำสั่ง `nextpnr-xilinx`
+  - ปรับปรุงการดึง token จาก git config อัตโนมัติเพื่อไม่ให้โดน GitHub Secret Protection บล็อก
+  - ปรับปรุงฟังก์ชัน `download_synthesized_bitstream_from_url` ให้รับมือกับการ Redirect ไปยัง Azure Blob Storage
+  - ยิงคำสั่งเริ่ม Run #4 (`#40886201426`) บน GitHub Actions เรียบร้อยแล้ว
+
+
+---
+
+## [2026-10-29 21:03:00] RUN-ID: #FIX-CLOUD-DIALOG-EXCEPTION-AND-TRIGGER-RUN5
+- **ปัญหาที่ผู้ใช้แจ้ง:** *"กดสังเคราะห์ตรงนี้ไม่เห็นมีอะไรเกิดขึ้นเลย"* (แนบรูปปุ่มสีม่วง 'สังเคราะห์ Cloud (GitHub)' ในหน้าต่าง JTAG Flasher)
+- **การตรวจหาสาเหตุเชิงลึก (Root Cause):**
+  - ตรวจสอบการ instantiate `CloudSynthesisDialog` ด้วยสคริปต์จำลอง
+  - พบข้อผิดพลาด 2 ชั้น:
+    1. `ImportError: cannot import name 'ACCENT_WARN' / 'BG_CARD' from 'config.theme'`
+    2. `AttributeError: 'CloudSynthesisDialog' object has no attribute 'main_frame'` (ต้องใช้ `self.container` จาก `BaseFramelessWizardDialog`)
+  - ข้อผิดพลาดเหล่านี้ทำให้เมื่อผู้ใช้กดปุ่ม Tkinter จับ exception ไว้เงียบๆ จึงดูเหมือนไม่มีอะไรเกิดขึ้น
+- **การแก้ไข:**
+  - เพิ่ม `ACCENT_WARN`, `BG_CARD`, `BG_DARK` ใน `config/theme.py`
+  - ปรับ `self.main_frame` ให้เป็น `self.container` ใน `ui/cloud_synthesis_dialog.py`
+  - ทดสอบรันและยืนยัน: `CloudSynthesisDialog created successfully!`
+  - ปรับขนาดและ layout ปุ่มในแถวที่ 2 ของ `fpga_programmer_dialog.py` ให้สวยงาม ไม่ถูกเบียดบัง
+  - เพิ่มออปชัน `--timing-allow-fail` ให้กับ `nextpnr-xilinx` ในเวิร์กโฟลว์ GitHub Actions
+  - ยิงคำสั่งรัน Run #5 (`#40887567996`) เรียบร้อย

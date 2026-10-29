@@ -189,7 +189,10 @@ def download_synthesized_bitstream_from_url(
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
             bit_names = [f for f in z.namelist() if f.endswith(".bit")]
             if not bit_names:
-                return False, "ไม่พบไฟล์ .bit ในไฟล์ที่ดาวน์โหลดมาจากคลาวด์"
+                msg = "ไม่พบไฟล์ .bit ในไฟล์ Artifacts จาก Cloud (ระบบ P&R ยังไม่ได้สร้าง Bitstream)"
+                if on_log:
+                    on_log(f"⚠️ {msg}")
+                return False, msg
             target_name = bit_names[0]
             os.makedirs(os.path.dirname(os.path.abspath(dest_bit_path)), exist_ok=True)
             with open(dest_bit_path, "wb") as f_out:

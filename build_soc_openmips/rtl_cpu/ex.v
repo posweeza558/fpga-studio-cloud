@@ -193,9 +193,14 @@ module ex (input wire rst,                  //译码阶段送到执行阶段的�
         if(rst == `RstEnable) begin
             hilo_temp_o                 <= {`ZeroWord, `ZeroWord};
             cnt_o                       <= 2'b00;
+            hilo_temp1                  <= {`ZeroWord, `ZeroWord};
             stallreq_for_madd_msub      <= `NoStop;
         end
         else begin
+            hilo_temp_o                 <= {`ZeroWord, `ZeroWord};
+            cnt_o                       <= 2'b00;
+            hilo_temp1                  <= {`ZeroWord, `ZeroWord};
+            stallreq_for_madd_msub      <= `NoStop;
             case (aluop_i)
                 `EXE_MADD_OP, `EXE_MADDU_OP : begin
                     if (cnt_i == 2'b00) begin       // 执行阶段的第一个时钟周期
@@ -260,6 +265,9 @@ module ex (input wire rst,                  //译码阶段送到执行阶段的�
             movres   <= `ZeroWord;
         end //endif
         else begin
+            logicout <= `ZeroWord;
+            shiftres <= `ZeroWord;
+            movres   <= `ZeroWord;
             case (aluop_i)
                 //进行逻辑运算
                 `EXE_OR_OP : begin

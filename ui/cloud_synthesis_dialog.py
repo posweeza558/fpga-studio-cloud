@@ -73,7 +73,7 @@ class CloudSynthesisDialog(BaseFramelessWizardDialog):
         self._build_ui()
 
     def _build_ui(self):
-        body = tk.Frame(self.main_frame, bg=BG_DARK)
+        body = tk.Frame(self.container, bg=BG_DARK)
         body.pack(fill=tk.BOTH, expand=True, padx=20, pady=12)
 
         # Header description
@@ -318,7 +318,10 @@ class CloudSynthesisDialog(BaseFramelessWizardDialog):
                             if d_ok:
                                 self.after(0, lambda: self._on_bitstream_downloaded(dest_bit))
                                 return
-                        self.after(0, lambda: self._on_finish(True, f"สังเคราะห์สำเร็จแต่ไม่พบ Artifacts สำหรับดาวน์โหลดอัตโนมัติ ({html_url})"))
+                            else:
+                                self.after(0, lambda m=d_msg: self._on_finish(False, m))
+                                return
+                        self.after(0, lambda: self._on_finish(False, f"สังเคราะห์เสร็จแต่ไม่พบ Artifacts สำหรับดาวน์โหลด ({html_url})"))
                         return
                     else:
                         err_str = f"การสังเคราะห์บน Cloud ล้มเหลว (ผลลัพธ์: {conclusion})\nดูรายละเอียดได้ที่: {html_url}"
@@ -346,5 +349,6 @@ class CloudSynthesisDialog(BaseFramelessWizardDialog):
     def _on_finish(self, ok: bool, msg: str):
         self.is_running = False
         self.btn_dispatch.config(state=tk.NORMAL, text="🚀 เริ่มสังเคราะห์บน Cloud (GitHub Dispatch)")
+        self._log(f"\n[{'เสร็จสมบูรณ์' if ok else 'แจ้งเตือน'}] {msg}")
         if not ok:
-            messagebox.showerror("Cloud Synthesis ไม่สำเร็จ", msg, parent=self)
+            messagebox.showerror("สถานะ Cloud Synthesis", msg, parent=self)

@@ -58,7 +58,6 @@ module id (input wire rst,
     
     //指令是否有效
     reg instvalid;
-    reg text;
 
     wire[`RegBus] pc_plus_4;
     wire[`RegBus] pc_plus_8;
@@ -851,19 +850,15 @@ module id (input wire rst,
         end
         else if ((reg2_read_o == `ReadEnable) && (ex_wreg_i == `ReadEnable) && (reg2_addr_o == ex_wd_i) && (ex_wd_i != `NOPRegAddr)) begin
             reg2_o <= ex_wdata_i;
-            text   <= 1'b1;
         end
         else if ((reg2_read_o == `ReadEnable) && (mem_wreg_i == `ReadEnable) && (reg2_addr_o == mem_wd_i) && (mem_wd_i != `NOPRegAddr)) begin
             reg2_o <= mem_wdata_i;
-            text   <= 1'b0;
         end
         else if (reg2_read_o == `ReadEnable) begin
             reg2_o <= reg2_data_i;                              //Regfile读端口2的输出值
-            text   <= 1'b1;
         end
         else if (reg2_read_o == `ReadDisable) begin
             reg2_o <= imm;                                      //立即数
-            text   <= 1'b0;
         end
         else begin
             reg2_o <= `ZeroWord;
