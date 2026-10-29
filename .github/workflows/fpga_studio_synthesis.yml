@@ -55,17 +55,24 @@ jobs:
             if [ -f "${PKG_DIR}/nexys_a7_soc_top.v" ]; then
               cd "${PKG_DIR}"
               
-              # Collect all CPU RTL files safely (avoiding duplicates)
-              FILES="nexys_a7_soc_top.v uart_prog_loader.v"
-              if [ -d rtl_cpu ]; then
-                for f in rtl_cpu/*.v; do
-                  [ -e "$f" ] || continue
-                  bn=$(basename "$f")
-                  if [ "$bn" != "top.v" ] && [ "$bn" != "inst_rom.v" ] && [ "$bn" != "data_ram.v" ] && [ "$bn" != "openmips_min_sopc.v" ]; then
-                    FILES="$FILES $f"
-                  fi
-                done
+              # Ensure rtl_cpu is populated from custom_cpus if needed
+              if [ ! -d rtl_cpu ] || [ -z "$(ls -A rtl_cpu 2>/dev/null)" ]; then
+                mkdir -p rtl_cpu
+                if [ -d "../custom_cpus/${CPU}" ]; then
+                  echo "Copying CPU Verilog files from custom_cpus/${CPU}..."
+                  cp -r ../custom_cpus/${CPU}/* rtl_cpu/
+                fi
               fi
+
+              # Collect all CPU RTL files safely (avoiding top-level duplicates)
+              FILES="nexys_a7_soc_top.v uart_prog_loader.v"
+              for f in rtl_cpu/*.v; do
+                [ -e "$f" ] || continue
+                bn=$(basename "$f")
+                if [ "$bn" != "top.v" ] && [ "$bn" != "inst_rom.v" ] && [ "$bn" != "data_ram.v" ] && [ "$bn" != "openmips_min_sopc.v" ]; then
+                  FILES="$FILES $f"
+                fi
+              done
               echo "Synthesizing Verilog files: $FILES"
               
               yosys -p "
