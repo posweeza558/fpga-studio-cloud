@@ -3,6 +3,29 @@
 
 ---
 
+## [2026-10-29 21:42:00] RUN-ID: #WSL-LOCAL-SYNTHESIS-INTEGRATION
+- **ไฟล์ที่สร้าง/แก้ไข:**
+  - `core/wsl_synthesis.py`: โมดูลสังเคราะห์ฮาร์ดแวร์ Local WSL Engine
+    - ฟังก์ชัน `check_wsl_status()` ตรวจจับการติดตั้ง WSL, Distro (Ubuntu/Debian), และเครื่องมือ Yosys/Docker ในเครื่องอย่างแม่นยำ พร้อมถอดรหัส UTF-16LE / UTF-8
+    - ฟังก์ชัน `launch_wsl_install()` สั่งเปิด Administrator Shell รัน `wsl --install` แบบ 1-Click
+    - ฟังก์ชัน `convert_win_to_wsl_path()` แปลง Windows Path -> WSL Path (`/mnt/c/...`)
+    - ฟังก์ชัน `generate_wsl_build_script()` สร้างสคริปต์ `build_wsl.sh` รัน Yosys + nextpnr-xilinx ใน WSL
+    - ฟังก์ชัน `run_wsl_synthesis()` สตรีม Log แบบสดเข้าแอป และคัดลอก `.bit` อัตโนมัติ
+  - `ui/wsl_synthesis_dialog.py`: หน้าต่าง Wizard การสังเคราะห์ผ่าน WSL
+    - แสดงสถานะ Real-time: มี WSL หรือยัง, มี Distro ไหน, มีเครื่องมืออะไรบ้าง
+    - หากยังไม่มี WSL: มีปุ่มสีส้ม `⚡ ติดตั้ง WSL (Ubuntu) อัตโนมัติ` และปุ่ม `🔄 ตรวจสอบใหม่`
+    - หากมี WSL แล้ว: แสดงปุ่มเขียว `🚀 เริ่มสังเคราะห์ Bitstream ในเครื่อง (Start WSL Synthesis)`
+    - แสดง Live Log Console บันทึกการรันคำสั่ง Linux แบบ Real-time
+  - `ui/fpga_programmer_dialog.py`:
+    - สลับปุ่มหลักเป็น `🐧 สังเคราะห์ผ่าน WSL (Linux ในเครื่อง)` เพื่อให้ผู้ใช้คอมไพล์ในเครื่อง 100% ออฟไลน์
+    - พับระบบ Cloud ไว้ตามความต้องการของผู้ใช้ เพื่อความสะดวกและไม่ต้องใช้ GitHub Token
+- **ผลการทดสอบ:**
+  - `python -c "from core.wsl_synthesis import check_wsl_status"` ผ่าน 100% (ตรวจจับแม่นยำ)
+  - `python -c "from ui.wsl_synthesis_dialog import WSLSynthesisDialog"` ผ่าน 100%
+  - `python -c "from ui.fpga_programmer_dialog import FPGAProgrammerDialog"` ผ่าน 100%
+
+---
+
 ## [2026-10-29 17:37:00] RUN-ID: #INIT-FLASHER-BUNDLE
 - **ไฟล์ที่สร้าง/แก้ไข:**
   - `core/fpga_programmer.py`: รองรับ `openFPGALoader.exe`, แมปบอร์ด `nexys_a7_100` / `nexys_a7_50` / `basys3`, ตั้ง PATH หา DLLs

@@ -59,11 +59,11 @@ module mem (input wire rst,
             whilo_o <= whilo_i;
             hi_o    <= hi_i;
             lo_o    <= lo_i;
-            mem_addr_o  <= ZeroWord;
-            mem_we_o    <= WriteDisable;
+            mem_addr_o  <= `ZeroWord;
+            mem_we_o    <= `WriteDisable;
             mem_sel_o   <= 4'b0000;
-            mem_data_o  <= ZeroWord;
-            mem_ce_o    <= ChipDisable;
+            mem_data_o  <= `ZeroWord;
+            mem_ce_o    <= `ChipDisable;
             case (aluop_i)
                 `EXE_LB_OP : begin
                     mem_addr_o  <= mem_addr_i;

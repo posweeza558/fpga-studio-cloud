@@ -201,25 +201,25 @@ class FPGAProgrammerDialog(BaseFramelessWizardDialog):
             )
             btn_install_oss.pack(side=tk.RIGHT, padx=(4, 0))
 
-        btn_cloud_synth = tk.Button(
+        btn_wsl_synth = tk.Button(
             r2,
-            text="☁️ สังเคราะห์ Cloud",
+            text="🐧 สังเคราะห์ผ่าน WSL (Linux ในเครื่อง)",
             bg=BG_PILL_INACT,
-            fg="#A78BFA",
+            fg=ACCENT_CYAN,
             bd=0,
             highlightthickness=1,
-            highlightbackground="#A78BFA",
-            padx=8,
+            highlightbackground=ACCENT_CYAN,
+            padx=10,
             pady=1,
             cursor="hand2",
             font=(FONT_UI, 8, "bold"),
-            command=self._open_cloud_synthesis_dialog,
+            command=self._open_wsl_synthesis_dialog,
         )
-        btn_cloud_synth.pack(side=tk.RIGHT, padx=(4, 0))
+        btn_wsl_synth.pack(side=tk.RIGHT, padx=(4, 0))
 
         btn_export_soc = tk.Button(
             r2,
-            text="⚡ สังเคราะห์ Local SoC",
+            text="⚡ สร้างแพ็กเกจ SoC",
             bg=BG_PILL_INACT,
             fg=ACCENT_GREEN,
             bd=0,
@@ -409,6 +409,30 @@ class FPGAProgrammerDialog(BaseFramelessWizardDialog):
                 self._log(f"ℹ️ CPU ที่ผู้ใช้เพิ่มเอง '{core_name}': เลือกไฟล์ .bit หรือกด 'สร้างแพ็กเกจ Vivado สำหรับ CPU นี้'")
             else:
                 self._log(f"ℹ️ ยังไม่พบไฟล์ .bit สำหรับ '{core_name}' — สามารถกดเลือกไฟล์ .bit หรือสร้างแพ็กเกจ Vivado")
+
+    def _open_wsl_synthesis_dialog(self):
+        """Open WSL Local Hardware Synthesis modal dialog."""
+        sel = self.cpu_core_var.get()
+        info = self.cpu_map.get(sel, {})
+        core_name = info.get("name", "openmips")
+        core_arch = "mips" if "mips" in info.get("arch", "").lower() or "openmips" in core_name.lower() else "riscv"
+        c_path = info.get("path")
+
+        from ui.wsl_synthesis_dialog import WSLSynthesisDialog
+
+        def on_ready(bit_path):
+            self.bit_path_var.set(bit_path)
+            self._log(f"✅ เลือกไฟล์ Bitstream จาก WSL อัตโนมัติ: {os.path.basename(bit_path)}")
+
+        WSLSynthesisDialog(
+            parent=self,
+            cpu_name=core_name,
+            cpu_arch=core_arch,
+            cpu_hdl_path=c_path,
+            board_name=self.board_var.get(),
+            project_dir=self.project_dir,
+            on_bitstream_ready=on_ready,
+        )
 
     def _open_cloud_synthesis_dialog(self):
         """Open Cloud Synthesis modal dialog (GitHub Actions)."""
