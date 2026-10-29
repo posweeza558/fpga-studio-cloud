@@ -109,7 +109,8 @@ class CloudSynthesisDialog(BaseFramelessWizardDialog):
         r2 = tk.Frame(card_cfg, bg=BG_CARD)
         r2.pack(fill=tk.X, padx=14, pady=4)
         tk.Label(r2, text="คลัง GitHub (Repo):", bg=BG_CARD, fg=TXT_DIM, font=(FONT_UI, 9, "bold"), width=16, anchor="w").pack(side=tk.LEFT)
-        self.repo_var = tk.StringVar(value="your-username/fpga-studio-cloud")
+        def_repo = "posweeza558/fpga-studio-cloud"
+        self.repo_var = tk.StringVar(value=def_repo)
         e_repo = tk.Entry(r2, textvariable=self.repo_var, bg=BG_EDITOR, fg=TXT_BRIGHT, bd=0, highlightthickness=1, highlightbackground=BORDER_COLOR, font=(FONT_CODE, 9))
         e_repo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=6, ipady=3)
 
@@ -117,7 +118,19 @@ class CloudSynthesisDialog(BaseFramelessWizardDialog):
         r3 = tk.Frame(card_cfg, bg=BG_CARD)
         r3.pack(fill=tk.X, padx=14, pady=4)
         tk.Label(r3, text="GitHub Token (PAT):", bg=BG_CARD, fg=TXT_DIM, font=(FONT_UI, 9, "bold"), width=16, anchor="w").pack(side=tk.LEFT)
-        self.token_var = tk.StringVar(value="")
+        
+        # Auto-detect token dynamically from local git config
+        detected_token = ""
+        try:
+            import subprocess, re
+            r_out = subprocess.check_output(["git", "config", "remote.origin.url"], text=True, stderr=subprocess.DEVNULL).strip()
+            m = re.search(r"(ghp_[A-Za-z0-9]+)", r_out)
+            if m:
+                detected_token = m.group(1)
+        except Exception:
+            pass
+
+        self.token_var = tk.StringVar(value=detected_token)
         e_token = tk.Entry(r3, textvariable=self.token_var, show="*", bg=BG_EDITOR, fg=TXT_BRIGHT, bd=0, highlightthickness=1, highlightbackground=BORDER_COLOR, font=(FONT_CODE, 9))
         e_token.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=6, ipady=3)
 

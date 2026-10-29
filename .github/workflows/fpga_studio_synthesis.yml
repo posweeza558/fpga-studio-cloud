@@ -107,8 +107,7 @@ jobs:
                   --chipdb "$CHIPDB" \
                   --xdc Nexys-A7-100T-Master.xdc \
                   --json soc.json \
-                  --fasm soc.fasm \
-                  --nowrite || true
+                  --fasm soc.fasm
               else
                 echo "Warning: ChipDB not available for full P&R in container, netlist is verified."
               fi

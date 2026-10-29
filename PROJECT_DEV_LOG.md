@@ -171,3 +171,51 @@
     - 2. สำหรับการทดสอบบอร์ดทั่วไปหรือรันโค้ด $n\text{C}k$ ไม่จำเป็นต้องสังเคราะห์อะไรเลย สามารถใช้ Bitstream สำเร็จรูปแฟลชลงบอร์ดได้ใน 1 วินาที
     - 3. ปุ่มสังเคราะห์มีไว้เฉพาะเมื่อต้องการคอมไพล์โค้ดฮาร์ดแวร์ Verilog ใหม่เท่านั้น
   - ปรับปรุง `ui/cloud_synthesis_dialog.py`: เพิ่มการเรียก `prepare_cloud_synthesis_package` อัตโนมัติใน background thread ก่อนยิงคำสั่ง dispatch เพื่อรับประกันว่าไฟล์ package พร้อมเสมอ 100%
+
+
+---
+
+## [2026-10-29 20:22:00] RUN-ID: #EXPLAIN-DEMO-VS-CPU-AND-GIT-INIT
+- **รายงานจากผู้ใช้:**
+  - *"ทำแล้วไม่ได้นะค้าบบ มันรันเลข 1-9 อย่างเดียวเลย กับสวิตไฟขึ้น"*
+- **วิเคราะห์สาเหตุเชิงลึก:**
+  - 1. สิ่งที่บอร์ดแสดงคือพฤติกรรมของ `nexys_a7_gpio_demo.bit` (สวิตช์ติดกับ LED 1:1 และ 7-Segment รันเลข 0-9 วนลูปตามที่ Digilent ฮาร์ดโค้ดไว้ในฮาร์ดแวร์)
+  - 2. บิตสตรีมตัวนี้เป็น GPIO Logic Demo **ไม่มี CPU Core และไม่มี UART Bootloader**
+  - 3. ดังนั้นเมื่อผู้ใช้กด `📤 อัพโค้ด (UART)` บอร์ดจึงไม่ตอบสนองต่อโค้ด nCk เลย
+  - 4. เพื่อให้รันโค้ด C / MIPS ผ่าน UART Bootloader ได้จริง ต้องใช้ Bitstream ของ `nexys_a7_soc_top.v`
+- **การดำเนินการ:**
+  - ริเริ่ม Git Repository ใน `fpga_studio` พร้อมตั้ง branch `main` และ `.gitignore`
+  - Commit โค้ดทั้งหมดรวมทั้ง Workflow `.github/workflows/fpga_studio_synthesis.yml` เรียบร้อย
+  - เตรียมพร้อมให้ผู้ใช้เชื่อมโยงกับ GitHub Remote หรือใช้ Cloud Synthesis Dispatch ได้ทันที
+
+
+---
+
+## [2026-10-29 20:32:00] RUN-ID: #CLOUD-SYNTHESIS-DISPATCH-ACTIVE
+- **ความคืบหน้าสำคัญ:**
+  - ผู้ใช้อัปเดตสิทธิ์ `workflow` scope และ Push โค้ดขึ้น GitHub Repository: `posweeza558/fpga-studio-cloud` สำเร็จ 100%
+  - ส่งคำสั่ง GitHub Actions `workflow_dispatch` ไปยังคลังสำเร็จ
+  - เวิร์กโฟลว์ Run ID `#40882812279` กำลังรันอยู่บนเซิร์ฟเวอร์ Ubuntu ของ GitHub Actions (สถานะ: `in_progress`)
+  - URL ตรวจสอบ: `https://github.com/posweeza558/fpga-studio-cloud/actions/runs/40882812279`
+- **ขั้นตอนต่อไป:**
+  - รอให้เซิร์ฟเวอร์สังเคราะห์และทำ Place & Route เสร็จ
+  - ดาวน์โหลดไฟล์ .bit ตัวแท้มาเก็บไว้ที่ `bitstreams/nexys_a7_openmips.bit`
+  - แฟลชลงบอร์ดจริงและกด `📤 อัพโค้ด (UART)` เพื่อทดสอบการรัน $n\text{C}k$
+
+
+---
+
+## [2026-10-29 20:41:00] RUN-ID: #FIX-CLOUD-WORKFLOW-VERILOG-PACKAGING
+- **คำถามจากผู้ใช้:**
+  - *"ทีนี้ก็ใช้ได้กับทุกcpu เลยใช่ไหม"* + แนบรูป Run #1 Status Failure (49s)
+- **คำตอบสำหรับคำถาม:**
+  - **ใช่ 100%**: ระบบ SoC Auto-Wrapper ถูกออกแบบมาให้เชื่อมโยง CPU ใดๆ (OpenMIPS, RISC-V, หรือ Custom CPU ที่นักศึกษาออกแบบเอง) เข้ากับ IMEM, DMEM, UART Bootloader และ MMIO (Switch/LED/7-Segment) อัตโนมัติ และ Cloud Actions รับพารามิเตอร์ `cpu_name` เพื่อสังเคราะห์ CPU ทุกตัว
+- **วิเคราะห์สาเหตุ Run #1 Failure (49s):**
+  - ในล็อก GitHub Actions: `ERROR: File rtl_cpu/*.v not found or is a directory`
+  - เกิดจาก 2 สาเหตุ:
+    1. Yosys ไม่ทำ wildcard globbing ในสตริง `read_verilog` บน Linux
+    2. โฟลเดอร์ `build_soc_openmips/rtl_cpu` เป็นโฟลเดอร์ว่างใน git ไม่ได้ commit ไฟล์ Verilog ของ CPU เข้าไป
+- **การแก้ไข:**
+  - คัดลอกไฟล์ Verilog ทั้ง 16 ไฟล์จาก `custom_cpus/openmips/*.v` ลงใน `build_soc_openmips/rtl_cpu/` และ commit + push ขึ้น GitHub
+  - ปรับปรุง `.github/workflows/fpga_studio_synthesis.yml` ให้ตรวจสอบและดึงไฟล์จาก `custom_cpus/${CPU}` อัตโนมัติหาก `rtl_cpu` ว่าง
+  - Push การแก้ไขขึ้นคลัง และยิงคำสั่งเริ่ม Run #3 (`#40884228514`) เรียบร้อยแล้ว (สถานะ: `in_progress`)

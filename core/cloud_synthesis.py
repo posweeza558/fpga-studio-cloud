@@ -167,8 +167,23 @@ def download_synthesized_bitstream_from_url(
     try:
         if on_log:
             on_log(f"📥 กำลังดาวน์โหลด Bitstream สำเร็จรูปจากคลาวด์...")
+
+        class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+
+        opener = urllib.request.build_opener(NoRedirectHandler)
         req = urllib.request.Request(artifact_download_url, headers=headers)
-        with urllib.request.urlopen(req, timeout=45) as resp:
+        redirect_url = None
+        try:
+            opener.open(req)
+        except urllib.error.HTTPError as e:
+            if e.code in (301, 302, 303, 307):
+                redirect_url = e.headers.get("Location")
+
+        actual_url = redirect_url or artifact_download_url
+        download_req = urllib.request.Request(actual_url, headers={"User-Agent": "FPGA-Studio"})
+        with urllib.request.urlopen(download_req, timeout=60) as resp:
             zip_bytes = resp.read()
 
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
