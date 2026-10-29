@@ -181,25 +181,29 @@ class FPGAProgrammerDialog(BaseFramelessWizardDialog):
         cb_cpu.pack(side=tk.LEFT, padx=6)
         cb_cpu.bind("<<ComboboxSelected>>", lambda e: self._on_cpu_selection_changed())
 
-        btn_install_oss = tk.Button(
-            r2,
-            text="📥 ติดตั้ง OSS Toolchain",
-            bg=BG_PILL_INACT,
-            fg=ACCENT_CYAN,
-            bd=0,
-            highlightthickness=1,
-            highlightbackground=ACCENT_CYAN,
-            padx=8,
-            pady=1,
-            cursor="hand2",
-            font=(FONT_UI, 8, "bold"),
-            command=lambda: self._start_install_oss_cad_suite(auto_synthesize_after=False),
-        )
-        btn_install_oss.pack(side=tk.RIGHT, padx=(4, 0))
+        from core.open_synthesizer import detect_synthesis_engines
+        has_yosys = bool(detect_synthesis_engines().get("yosys"))
+
+        if not has_yosys:
+            btn_install_oss = tk.Button(
+                r2,
+                text="📥 ติดตั้ง OSS Toolchain",
+                bg=BG_PILL_INACT,
+                fg=ACCENT_CYAN,
+                bd=0,
+                highlightthickness=1,
+                highlightbackground=ACCENT_CYAN,
+                padx=8,
+                pady=1,
+                cursor="hand2",
+                font=(FONT_UI, 8, "bold"),
+                command=lambda: self._start_install_oss_cad_suite(auto_synthesize_after=False),
+            )
+            btn_install_oss.pack(side=tk.RIGHT, padx=(4, 0))
 
         btn_cloud_synth = tk.Button(
             r2,
-            text="☁️ สังเคราะห์ Cloud (GitHub)",
+            text="☁️ สังเคราะห์ Cloud",
             bg=BG_PILL_INACT,
             fg="#A78BFA",
             bd=0,
@@ -215,7 +219,7 @@ class FPGAProgrammerDialog(BaseFramelessWizardDialog):
 
         btn_export_soc = tk.Button(
             r2,
-            text="⚡ สังเคราะห์ SoC Bitstream",
+            text="⚡ สังเคราะห์ Local SoC",
             bg=BG_PILL_INACT,
             fg=ACCENT_GREEN,
             bd=0,
