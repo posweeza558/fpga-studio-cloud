@@ -65,9 +65,9 @@ class WSLSynthesisDialog(BaseFramelessWizardDialog):
 
         super().__init__(
             parent,
-            title=f"🐧 สังเคราะห์ Bitstream ในเครื่องผ่าน WSL (Linux Local Engine) — {cpu_name}",
-            width=840,
-            height=660,
+            f"FPGA Studio — สังเคราะห์ Bitstream ในเครื่องผ่าน WSL ({cpu_name})",
+            840,
+            660,
         )
 
         self._build_ui()
