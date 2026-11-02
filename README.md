@@ -108,9 +108,16 @@ fpga_studio/
 
 ---
 
-## 🛠️ Getting Started
+## 📥 Download & Installation
 
-### Running from Source
+For most users, simply download the pre-packaged Windows installer and run it:
+* 🚀 **[Download FPGA Studio v4.2 Installer (.exe)](https://github.com/posweeza558/fpga-studio-cloud/releases/latest)** *(Self-contained, includes offline GCC toolchains, bitstreams, and simulators)*
+
+---
+
+## 🛠️ Running from Source (For Developers)
+
+If you want to modify or contribute to the source code:
 1. Clone the repository:
    ```bash
    git clone https://github.com/posweeza558/fpga-studio-cloud.git
@@ -124,17 +131,6 @@ fpga_studio/
    ```bash
    python vscode_app.py
    ```
-
-### Building the Windows Installer (.exe)
-1. Build standalone executable bundle with PyInstaller:
-   ```bash
-   pyinstaller "FPGA Studio.spec" --noconfirm
-   ```
-2. Compile setup package with Inno Setup 6:
-   ```bash
-   iscc installer.iss
-   ```
-   The installer executable `FPGA_Studio_Setup_v4.2.exe` will be generated in `installer_output/`.
 
 ---
 
