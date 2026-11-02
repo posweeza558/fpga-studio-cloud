@@ -291,7 +291,23 @@ def program_fpga_with_openfpgaloader(
         return False, f"ไม่พบไฟล์ Bitstream: {bitstream_path}"
 
     target_board = map_board_to_openfpgaloader_target(board)
-    cmd = [loader_path, "-b", target_board, bitstream_path]
+    # Detect connected Digilent FTDI serial number to ensure 100% reliable USB binding on Windows
+    serial_num = None
+    try:
+        proc = subprocess.run([loader_path, "--scan-usb"], capture_output=True, text=True, timeout=3)
+        for line in proc.stdout.splitlines():
+            if "0x0403:0x6010" in line or "Digilent" in line:
+                parts = line.split()
+                if len(parts) >= 6:
+                    serial_num = parts[5]
+                    break
+    except Exception:
+        pass
+
+    cmd = [loader_path, "-c", "digilent"]
+    if serial_num:
+        cmd.extend(["--usb-serial-num", serial_num])
+    cmd.extend(["-m", bitstream_path])
     if on_log:
         on_log(f"⚡ รัน openFPGALoader (บอร์ด: {target_board}): {' '.join(cmd)}\n")
 

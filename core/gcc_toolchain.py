@@ -39,6 +39,30 @@ def find_mips_gcc_bin():
 RISCV_BIN_DIR = find_riscv_gcc_bin()
 MIPS_BIN_DIR = find_mips_gcc_bin()
 
+# LRU / In-memory Compilation Cache to eliminate redundant GCC invocations (0ms response)
+_COMPILER_CACHE_RISCV = {}
+_COMPILER_CACHE_MIPS = {}
+_MAX_CACHE_SIZE = 64
+
+
+def _clone_instructions(ins_list):
+    """Fast shallow clone of instruction list and dictionary elements."""
+    res = []
+    for ins in ins_list:
+        d = dict(ins)
+        if "fields" in d and isinstance(d["fields"], dict):
+            d["fields"] = dict(d["fields"])
+        if "init_dmem" in d and isinstance(d["init_dmem"], dict):
+            d["init_dmem"] = dict(d["init_dmem"])
+        res.append(d)
+    return res
+
+
+def clear_gcc_cache():
+    """Clear in-memory GCC compile cache."""
+    _COMPILER_CACHE_RISCV.clear()
+    _COMPILER_CACHE_MIPS.clear()
+
 
 def compile_with_real_riscv_gcc(c_code, opt_level="-O1", is_cpp=False):
     """
@@ -49,6 +73,11 @@ def compile_with_real_riscv_gcc(c_code, opt_level="-O1", is_cpp=False):
     """
     if not RISCV_BIN_DIR:
         raise RuntimeError("ไม่พบ riscv-none-elf-gcc ในโฟลเดอร์ toolchain")
+
+    cache_key = (hash(c_code), opt_level, is_cpp)
+    if cache_key in _COMPILER_CACHE_RISCV:
+        cached_asm, cached_ins = _COMPILER_CACHE_RISCV[cache_key]
+        return list(cached_asm), _clone_instructions(cached_ins)
 
     compiler_name = "riscv-none-elf-g++.exe" if is_cpp else "riscv-none-elf-gcc.exe"
     gcc_exe = os.path.join(RISCV_BIN_DIR, compiler_name)
@@ -144,6 +173,7 @@ SECTIONS {
             "-march=rv32im",
             "-mabi=ilp32",
             opt_level,
+            "-g",
             "-nostdlib",
             "-fno-builtin",
             f"-I{ws_dir}",
@@ -172,7 +202,7 @@ SECTIONS {
                     err_msg = stderr_lines[-1]
             raise RuntimeError(err_msg)
 
-        cmd_dump = [objdump_exe, "-d", "-M", "no-aliases", elf_path]
+        cmd_dump = [objdump_exe, "-d", "-l", "-M", "no-aliases", elf_path]
         dump_proc = subprocess.run(cmd_dump, capture_output=True, text=True, startupinfo=startupinfo)
 
         # Extract initialized .data / .rodata (at 0x80000000) for Harvard Data RAM preloading
@@ -199,9 +229,14 @@ SECTIONS {
         sym_map = {}
         sym_re = re.compile(r"^([0-9a-fA-F]+)\s+<([^>]+)>:$")
         line_re = re.compile(r"^\s*([0-9a-fA-F]+):\s+([0-9a-fA-F]{8})\s+(.+)$")
+        src_re = re.compile(r"(?:user_code|main\.(?:c|cpp)):(\d+)")
 
         raw_words = []
+        cur_src_line = None
         for line in dump_proc.stdout.splitlines():
+            msrc = src_re.search(line)
+            if msrc:
+                cur_src_line = int(msrc.group(1))
             ms = sym_re.match(line.strip())
             if ms:
                 sym_map[int(ms.group(1), 16)] = ms.group(2)
@@ -210,18 +245,19 @@ SECTIONS {
             if ml:
                 pc_int = int(ml.group(1), 16)
                 word = int(ml.group(2), 16)
-                raw_words.append((pc_int, word))
+                raw_words.append((pc_int, word, cur_src_line))
 
         instructions = []
         asm_lines = []
         reg_tracker = {}
-        for pc_int, word in raw_words:
+        for pc_int, word, s_line in raw_words:
             fmt, fields, canonical_asm, desc = decode_rv32_word(word, pc=pc_int, sym_map=sym_map, reg_tracker=reg_tracker)
             asm_lines.append(canonical_asm)
             sym_name = sym_map.get(pc_int, "")
             instructions.append({
                 "pc": f"0x{pc_int:04X}",
                 "pc_int": pc_int,
+                "src_line": s_line,
                 "asm": canonical_asm,
                 "hex": f"0x{word:08X}",
                 "bin": f"{word:032b}",
@@ -233,6 +269,12 @@ SECTIONS {
             })
         if instructions and init_dmem:
             instructions[0]["init_dmem"] = init_dmem
+
+        # Cache compiled result
+        if len(_COMPILER_CACHE_RISCV) >= _MAX_CACHE_SIZE:
+            _COMPILER_CACHE_RISCV.pop(next(iter(_COMPILER_CACHE_RISCV)))
+        _COMPILER_CACHE_RISCV[cache_key] = (list(asm_lines), _clone_instructions(instructions))
+
         return asm_lines, instructions
 
 
@@ -246,6 +288,11 @@ def compile_with_real_mips_gcc(c_code, opt_level="-O1", is_cpp=False):
     """
     if not MIPS_BIN_DIR:
         raise RuntimeError("ไม่พบ mips-gcc ในโฟลเดอร์ toolchain")
+
+    cache_key = (hash(c_code), opt_level, is_cpp)
+    if cache_key in _COMPILER_CACHE_MIPS:
+        cached_asm, cached_ins = _COMPILER_CACHE_MIPS[cache_key]
+        return list(cached_asm), _clone_instructions(cached_ins)
 
     gcc_bin = "mips64-elf-gcc.exe"
     gpp_bin = "mips64-elf-g++.exe"
@@ -359,8 +406,11 @@ SECTIONS {
             "-march=mips32",
             "-EB",
             opt_level,
+            "-g",
             "-nostdlib",
             "-fno-builtin",
+            "-mno-check-zero-division",
+            "-mno-branch-likely",
             f"-I{ws_dir}",
         ]
         if is_cpp:
@@ -387,7 +437,7 @@ SECTIONS {
                     err_msg = stderr_lines[-1]
             raise RuntimeError(err_msg)
 
-        cmd_dump = [objdump_exe, "-d", "-M", "no-aliases", elf_path]
+        cmd_dump = [objdump_exe, "-d", "-l", "-M", "no-aliases", elf_path]
         dump_proc = subprocess.run(cmd_dump, capture_output=True, text=True, startupinfo=startupinfo)
 
         init_dmem = {}
@@ -412,9 +462,14 @@ SECTIONS {
         sym_map = {}
         sym_re = re.compile(r"^([0-9a-fA-F]+)\s+<([^>]+)>:$")
         line_re = re.compile(r"^\s*([0-9a-fA-F]+):\s+([0-9a-fA-F]{8})\s+(.+)$")
+        src_re = re.compile(r"(?:user_code|main\.(?:c|cpp)):(\d+)")
 
         raw_words = []
+        cur_src_line = None
         for line in dump_proc.stdout.splitlines():
+            msrc = src_re.search(line)
+            if msrc:
+                cur_src_line = int(msrc.group(1))
             ms = sym_re.match(line.strip())
             if ms:
                 sym_map[int(ms.group(1), 16)] = ms.group(2)
@@ -423,18 +478,19 @@ SECTIONS {
             if ml:
                 pc_int = int(ml.group(1), 16)
                 word = int(ml.group(2), 16)
-                raw_words.append((pc_int, word))
+                raw_words.append((pc_int, word, cur_src_line))
 
         instructions = []
         asm_lines = []
         reg_tracker = {}
-        for pc_int, word in raw_words:
+        for pc_int, word, s_line in raw_words:
             fmt, fields, canonical_asm, desc = decode_mips_word(word, pc=pc_int, sym_map=sym_map, reg_tracker=reg_tracker)
             asm_lines.append(canonical_asm)
             sym_name = sym_map.get(pc_int, "")
             instructions.append({
                 "pc": f"0x{pc_int:04X}",
                 "pc_int": pc_int,
+                "src_line": s_line,
                 "asm": canonical_asm,
                 "hex": f"0x{word:08X}",
                 "bin": f"{word:032b}",
@@ -446,5 +502,11 @@ SECTIONS {
             })
         if instructions and init_dmem:
             instructions[0]["init_dmem"] = init_dmem
+
+        # Cache compiled result
+        if len(_COMPILER_CACHE_MIPS) >= _MAX_CACHE_SIZE:
+            _COMPILER_CACHE_MIPS.pop(next(iter(_COMPILER_CACHE_MIPS)))
+        _COMPILER_CACHE_MIPS[cache_key] = (list(asm_lines), _clone_instructions(instructions))
+
         return asm_lines, instructions
 

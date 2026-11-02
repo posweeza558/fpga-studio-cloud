@@ -60,7 +60,7 @@ module riscv_rv32i (
                           load_use_stall  ? pc               :
                           fetch_valid     ? pc_plus_4        : pc;
 
-    always @(posedge clk or posedge rst) begin
+    always @(posedge clk) begin
         if (rst) begin
             pc <= 32'h00000000;
         end else begin
@@ -75,7 +75,7 @@ module riscv_rv32i (
     reg [31:0] if_id_inst;
     reg        if_id_valid;
 
-    always @(posedge clk or posedge rst) begin
+    always @(posedge clk) begin
         if (rst) begin
             if_id_pc    <= 32'd0;
             if_id_inst  <= 32'h00000013; // NOP
@@ -180,7 +180,7 @@ module riscv_rv32i (
     assign load_use_stall = !ex_branch_taken && id_ex_valid && id_ex_is_load && (id_ex_rd != 5'd0) &&
                             ((id_uses_rs1 && (id_ex_rd == id_rs1)) || (id_uses_rs2 && (id_ex_rd == id_rs2)));
 
-    always @(posedge clk or posedge rst) begin
+    always @(posedge clk) begin
         if (rst || ex_branch_taken || load_use_stall) begin
             id_ex_pc        <= 32'd0;
             id_ex_inst      <= 32'h00000013;
@@ -314,7 +314,7 @@ module riscv_rv32i (
     wire [31:0] dv_b_abs   = dv_b_neg ? (~rdata2 + 32'd1) : rdata2;
     wire [32:0] div_trial  = {div_rem, div_quo[31]} - {1'b0, div_dvs};
 
-    always @(posedge clk or posedge rst) begin
+    always @(posedge clk) begin
         if (rst) begin
             div_busy  <= 1'b0;
             div_done  <= 1'b0;
@@ -423,7 +423,7 @@ module riscv_rv32i (
     reg        ex_mem_is_store;
     reg [2:0]  ex_mem_funct3;
 
-    always @(posedge clk or posedge rst) begin
+    always @(posedge clk) begin
         if (rst) begin
             ex_mem_pc       <= 32'd0;
             ex_mem_inst     <= 32'h00000013;
@@ -519,7 +519,7 @@ module riscv_rv32i (
     reg [4:0]  mem_wb_rd;
     reg        mem_wb_reg_we;
 
-    always @(posedge clk or posedge rst) begin
+    always @(posedge clk) begin
         if (rst) begin
             mem_wb_pc     <= 32'd0;
             mem_wb_inst   <= 32'h00000013;
@@ -586,7 +586,7 @@ module riscv_rv32i (
     wire [1:0] mem_fwd_inc  = ((fwd_a == 2'b01) ? 2'd1 : 2'd0) + (((fwd_b == 2'b01) && fwd_b_unique) ? 2'd1 : 2'd0);
     wire [1:0] flush_inc    = ex_branch_taken ? 2'd2 : (id_jal_taken ? 2'd1 : 2'd0);
 
-    always @(posedge clk or posedge rst) begin
+    always @(posedge clk) begin
         if (rst) begin
             rtl_cycle_cnt      <= 32'd0;
             rtl_inst_retired   <= 32'd0;

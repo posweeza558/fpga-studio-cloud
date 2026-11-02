@@ -3,6 +3,27 @@
 
 ---
 
+## [2026-10-30 00:25:00] RUN-ID: #ROOT-CAUSE-DISCOVERY-AND-FULL-HARDWARE-ALIGNMENT
+- **ค้นพบและแก้ไขต้นเหตุ 5 ประเด็นสำคัญ (Root Causes Resolved):**
+  1. **WSL Subprocess Charmap Unicode Error:**
+     - **สาเหตุ:** สคริปต์ส่งข้อความ emoji `⚠️` (UTF-8 `\xe2\x9a\xa0`) แต่ระบบ Windows ภาษาไทยใช้ CP874 (charmap) ทำให้ไบต์ `0x9a` แครช
+     - **แก้ไข:** ใส่ `encoding="utf-8", errors="replace"` ใน `core/wsl_synthesis.py` และทำความสะอาด `$PATH` ใน WSL ให้แยกจาก Windows
+     - **ผลลัพธ์:** สังเคราะห์ฮาร์ดแวร์จริงในเครื่องสำเร็จ 100% สร้างไฟล์ `nexys_a7_openmips.bit` (3,825,890 ไบต์) จาก Verilog RTL สำเร็จสมบูรณ์โดยไม่ต้องลง Vivado 50GB!
+  2. **ปัญหาค้าง Opcode เก่าใน Instruction RAM (Old Opcode Retention):**
+     - **สาเหตุ:** `uart_prog_loader.v` เขียนคำสั่งทับเฉพาะจำนวนคำสั่งที่ส่งมา หากโปรแกรมเดิมยาวกว่า (เช่น เกม Snake 380 คำสั่ง) แล้วส่งโปรแกรมสั้น 20 คำสั่ง คำสั่งเก่าตั้งแต่ 21 เป็นต้นไปจะยังค้างอยู่ในแรม
+     - **แก้ไข:** ใน `ui/board_panels.py` อัปเดต `pad_target` ให้แพ็ก NOP (`0x00000000`) ล้างแรมคำสั่งให้เกลี้ยงอย่างน้อย 1,024 คำสั่ง (4KB) ทุกครั้งที่อัปโหลด ใช้เวลาเพียง ~0.35 วินาที
+  3. **ปัญหา 7-Segment แสดงผลไม่ตรงกับ Simulator (Hex vs Decimal):**
+     - **สาเหตุ:** ฮาร์ดแวร์ `nexys_a7_soc_top.v` อ่านค่า `seg7_reg` ทีละ 4 บิต (Hex Nibble) ออก 7-Segment ขณะที่ Simulator เดิมใช้ `str(abs(val))` แสดงผลเลขฐาน 10 ทำให้สวิตช์ 15 (ค่า 128) บน Sim ได้ `128` แต่บนบอร์ดจริงได้ `80` ($128_{10} = \text{0x80}$)
+     - **แก้ไข:** แก้ไข `ui/board_panels.py` ให้จำลอง 7-Segment แบบ Hex Nibble เหมือนฮาร์ดแวร์จริง และเพิ่มฟังก์ชัน `to_bcd()` ใน C Demo ทุกตัว เพื่อให้หน้าจอแสดงเลขฐาน 10 สวยงามตรงตัว
+  4. **ปัญหา GCC Loop Optimization รวม Branch ผิดตำแหน่งใน `nck_7seg_demo.c`:**
+     - **สาเหตุ:** เมื่อมี 5 ข้อทดสอบในลูป `while(1)` GCC `-O1` ยุบ branch ย้อนกลับไปชี้ที่ตำแหน่ง Address `0x0044` ซึ่งเป็นคำสั่งบันทึกผลลัพธ์ของข้อ 4 ($6\text{C}3 = 20$) ทำให้โปรแกรมค้างที่เลข 20 ตลอดกาล
+     - **แก้ไข:** ปรับเป็นโค้ดคำนวณข้อเดี่ยว $10\text{C}3 = 120$ ด้วย Pure-Register ALU (`mult`/`div`), แปลงเป็น BCD `0x00000120`, ส่งไฟ LED 120 (`0x0078`) และล็อกด้วย `while(1);`
+  5. **ปัญหา Binary Counter ไฟติดค้างและหน้าจอขึ้นเลข 8:**
+     - **สาเหตุ:** โค้ดเดิมไม่มี Delay loop ทำให้ CPU วิ่งวนลูป 25 MHz (25 ล้านครั้ง/วินาที) บิตล่างสลับเร็วจนตาเห็นเป็นภาพติดตา (Persistence of Vision) รวมเป็นเลข 8 ทุกหลัก
+     - **แก้ไข:** ใส่ Delay loop 0.2 วินาทีใน `2_binary_counter.c` มองเห็นการนับทีละจังหวะชัดเจน
+
+---
+
 ## [2026-10-29 21:42:00] RUN-ID: #WSL-LOCAL-SYNTHESIS-INTEGRATION
 - **ไฟล์ที่สร้าง/แก้ไข:**
   - `core/wsl_synthesis.py`: โมดูลสังเคราะห์ฮาร์ดแวร์ Local WSL Engine
@@ -275,3 +296,46 @@
   - ปรับขนาดและ layout ปุ่มในแถวที่ 2 ของ `fpga_programmer_dialog.py` ให้สวยงาม ไม่ถูกเบียดบัง
   - เพิ่มออปชัน `--timing-allow-fail` ให้กับ `nextpnr-xilinx` ในเวิร์กโฟลว์ GitHub Actions
   - ยิงคำสั่งรัน Run #5 (`#40887567996`) เรียบร้อย
+
+---
+
+## [2026-10-29 22:25:00] RUN-ID: #100-PERCENT-LOCAL-WSL-SYNTHESIS-SUCCESS
+- **เป้าหมายตามคำสั่งผู้ใช้:**
+  - เปลี่ยนจากการพึ่งพา Cloud / GitHub Actions มาเป็นการรันเครื่องมือสังเคราะห์ทั้งหมดบนเครื่องคอมพิวเตอร์ของผู้ใช้เอง 100% ผ่าน Windows Subsystem for Linux (WSL)
+  - ไม่ต้องติดตั้ง Vivado 50-80GB (Zero-Vivado on Windows)
+  - รองรับการตรวจจับ WSL อัตโนมัติ พร้อมปุ่มติดตั้ง WSL (Ubuntu) อัตโนมัติในคลิกเดียว
+- **การดำเนินการและแก้ไขปัญหา:**
+  1. **การติดตั้ง WSL & Ubuntu:**
+     - ผู้ใช้รันคำสั่งติดตั้ง WSL และได้ Ubuntu distro พร้อม user `poswee`
+     - ติดตั้งเครื่องมือใน WSL: Yosys 0.52 (native apt), build-essential, clang, cmake
+     - ติดตั้ง openXC7 toolchain prebuilt binaries (nextpnr-xilinx, fasm2frames, xc7frames2bit) ใน `/opt/openxc7`
+     - ติดตั้ง ChipDB `xc7a100tcsg324.bin` (159 MB) สำหรับ Nexys A7-100T
+  2. **แก้ไขข้อผิดพลาด Encoding ('charmap' codec can't decode byte 0x9a):**
+     - Subprocess Popen บนระบบปฏิบัติการ Windows ภาษาไทย ค่า default charset คือ `cp874`
+     - เมื่อ WSL bash พ่นสัญลักษณ์ UTF-8 (เช่น `⚠️` byte `0x9a`) Python เกิด UnicodeDecodeError
+     - แก้ไขใน `core/wsl_synthesis.py` โดยระบุ `encoding="utf-8", errors="replace"` ใน `subprocess.Popen` อย่างรัดกุม
+  3. **ขจัดปัญหา Verilog Combinational Latches ใน OpenMIPS Core:**
+     - แก้ไข `id.v`, `ex.v`, และ `mem.v` เพิ่ม explicit default assignments
+     - ป้องกัน combinatorial feedback loops ใน place & route
+  4. **ผลลัพธ์การสังเคราะห์ Bitstream ใน WSL (Native Local WSL):**
+     - ขั้นตอน 1/3: Yosys Synthesizing SoC -> สำเร็จสมบูรณ์ ได้ `soc.json` (35 MB)
+     - ขั้นตอน 2/3: `nextpnr-xilinx` Place & Route -> สำเร็จสมบูรณ์ ได้ `soc.fasm` (21 MB)
+     - ขั้นตอน 3/3: `fasm2frames` + `xc7frames2bit` -> สำเร็จสมบูรณ์ ได้ `nexys_a7_openmips.bit` (3.82 MB)
+     - คัดลอกไปยัง: `bitstreams/nexys_a7_openmips.bit`
+  5. **การทดสอบฮาร์ดแวร์จริง:**
+     - ตรวจสอบการเชื่อมต่อ Nexys A7-100T ผ่าน `openFPGALoader.exe -b nexys_a7_100 --detect`
+     - ผลลัพธ์: ตรวจพบบอร์ด `xc7a100` (JTAG ID: `0x3631093`) ที่ความถี่ 6.00 MHz
+     - ระบบ Unit Tests ทั้งหมด 10/10 ผ่านฉลุย 100% (`test_stage4_and_stage5.py` + `test_fpga_programmer.py`)
+
+---
+
+## [2026-10-30 14:30:00] RUN-ID: #FIX-RISCV-SYNTH-AND-STANDARD-C-NCK
+- **ปัญหาและข้อผิดพลาดที่พบ:**
+  1. `Error: unrecognized command-line option '-mno-check-zero-division'`: คอมไพเลอร์ RISC-V GCC 15.2 ล้มเหลวเนื่องจากตัวส่ง flag ใน `core/gcc_toolchain.py` ส่ง flag เฉพาะของ MIPS เข้าไป
+  2. `ERROR: Multiple edge sensitive events found for this signal!`: การสังเคราะห์ RISC-V ใน WSL ผ่าน Yosys ล้มเหลวจาก Asynchronous Reset ใน `custom_cpus/riscv/riscv_rv32i.v` (line 426)
+  3. อาการตัวเลข 7-Segment ค้างที่ `8325`: เกิดจาก BRAM ใน FPGA ไม่ถูกเคลียร์ทับด้วยคำสั่ง NOP ทำให้มีโค้ดเก่าตกค้างเมื่อขนาดโปรแกรมใหม่สั้นกว่าโปรแกรมเดิม
+- **การแก้ไขและผลลัพธ์:**
+  1. **แก้ไข GCC Flags:** ลบ flag MIPS ส่วนเกินสำหรับ RISC-V ใน `core/gcc_toolchain.py` ส่งผลให้คำสั่งคูณหารฮาร์ดแวร์ (`mul`, `mulh`, `div`, `rem`) คอมไพล์ได้ 100%
+  2. **ปรับปรุง Reset เป็น Synchronous ใน RISC-V Core:** เปลี่ยน `always @(posedge clk or posedge rst)` ทั้ง 7 จุดใน `riscv_rv32i.v` ให้เป็น `always @(posedge clk)` ตามมาตรฐาน Xilinx Artix-7 FDRE ทำให้ Yosys สังเคราะห์ผ่าน 0 error และสร้างไฟล์ `bitstreams/nexys_a7_riscv.bit` สมบูรณ์
+  3. **แก้ BRAM Residual Code ใน `ui/board_panels.py`:** เพิ่มการเติม NOP Padding 1,024–4,096 คำทับแรมก่อนรัน และบังคับ Reset CPU ทุกครั้ง
+  4. **คลีนโค้ด C:** แปลง `nck_7seg_demo.c` และ `nck.c` เป็น Standard C โดยใช้โอเปอเรเตอร์ `*`, `/`, `%` โดยตรง และลบโค้ดเลื่อนบิต/บวกลบเดิมออกทั้งหมด

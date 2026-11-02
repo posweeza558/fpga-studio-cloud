@@ -7,7 +7,7 @@
 1. `nexys_a7_soc_top.v` — วงจรระดับบนสุด (SoC Top) เชื่อมต่อ CPU, หน่วยความจำ 16KB, สะพาน MMIO, 7-Segment 8 หลัก และ UART 115200
 2. `uart_prog_loader.v` — วงจร Bootloader รับโปรแกรมใหม่ผ่านสาย USB-UART (`PROG` protocol) โดยไม่ต้องสังเคราะห์ Bitstream ซ้ำ!
 3. `Nexys-A7-100T-Master.xdc` — ไฟล์กำหนดขาพินมาตรฐานของบอร์ด Nexys A7-100T (`xc7a100tcsg324-1`)
-4. `rtl_cpu/` — ซอร์สโค้ด Verilog ของ CPU (0 ไฟล์)
+4. `rtl_cpu/` — ซอร์สโค้ด Verilog ของ CPU (13 ไฟล์)
 5. `program.hex` / `dmem_init.hex` / `program.coe` — ข้อมูลโปรแกรมเริ่มต้นสำหรับ Block/Distributed RAM
 6. `build_vivado_project.tcl` — สคริปต์สร้างโปรเจกต์ Vivado อัตโนมัติ
 

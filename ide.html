@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FPGA Studio — RISC-V & MIPS IDE (Nexys A7 Edition)</title>
+<style>
+  :root {
+    --bg-dark: #0b0f19;
+    --bg-panel: #111827;
+    --bg-card: #1f2937;
+    --bg-input: #0f172a;
+    --border: #334155;
+    --txt: #f1f5f9;
+    --mute: #94a3b8;
+    --cyan: #38bdf8;
+    --purple: #a78bfa;
+    --green: #34d399;
+    --gold: #fbbf24;
+    --red: #f87171;
+    --orange: #fb923c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0;
+    font-family: "Segoe UI", "Sarabun", Tahoma, sans-serif;
+    background: var(--bg-dark);
+    color: var(--txt);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ================= TOP NAVBAR ================= */
+  .topbar {
+    height: 52px;
+    background: #090d16;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 14px;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 1.05rem;
+  }
+  .brand .logo {
+    background: linear-gradient(135deg, var(--cyan), var(--purple));
+    color: #0b0f19;
+    font-weight: 900;
+    padding: 4px 9px;
+    border-radius: 6px;
+    font-size: .85rem;
+  }
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  select, input[type="text"], button {
+    background: var(--bg-card);
+    color: var(--txt);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: .84rem;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--cyan); }
+  .btn-primary {
+    background: linear-gradient(135deg, #0284c7, #2563eb);
+    border-color: #38bdf8;
+    font-weight: 600;
+  }
+  .btn-run {
+    background: linear-gradient(135deg, #059669, #10b981);
+    border-color: #34d399;
+    color: #06281e;
+    font-weight: 700;
+  }
+  .btn-warn {
+    background: #3b2a10;
+    border-color: var(--gold);
+    color: var(--gold);
+    font-weight: 600;
+  }
+  .btn-upload {
+    background: linear-gradient(135deg, #7c3aed, #6d28d9);
+    border-color: var(--purple);
+    font-weight: 600;
+  }
+
+  /* ================= MAIN WORKSPACE ================= */
+  .workspace {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 42% 58%;
+    grid-template-rows: 56% 44%;
+    gap: 1px;
+    background: var(--border);
+    min-height: 0;
+  }
+  .panel {
+    background: var(--bg-panel);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .panel-hd {
+    height: 36px;
+    background: #0d1322;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px;
+    font-size: .82rem;
+    font-weight: 600;
+    color: var(--mute);
+    flex-shrink: 0;
+  }
+  .tabs { display: flex; gap: 4px; }
+  .tab {
+    padding: 4px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    color: var(--mute);
+    font-size: .8rem;
+    border: 1px solid transparent;
+  }
+  .tab.active {
+    background: var(--bg-card);
+    color: var(--cyan);
+    border-color: var(--border);
+  }
+
+  /* ================= CODE EDITOR ================= */
+  .editor-wrap {
+    flex: 1;
+    display: flex;
+    position: relative;
+    overflow: hidden;
+    background: #0b0f17;
+  }
+  .line-nums {
+    width: 42px;
+    padding: 12px 6px;
+    text-align: right;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: #475569;
+    background: #090d14;
+    border-right: 1px solid #1e293b;
+    user-select: none;
+    overflow: hidden;
+  }
+  textarea#codeEditor {
+    flex: 1;
+    background: transparent;
+    color: #e2e8f0;
+    border: none;
+    outline: none;
+    padding: 12px;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+    resize: none;
+    white-space: pre;
+    overflow: auto;
+  }
+
+  /* ================= OPCODE TABLE ================= */
+  .table-wrap {
+    flex: 1;
+    overflow: auto;
+  }
+  table.op-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: "Consolas", monospace;
+    font-size: .82rem;
+  }
+  table.op-table th {
+    position: sticky;
+    top: 0;
+    background: #090d16;
+    color: var(--mute);
+    text-align: left;
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--border);
+    z-index: 2;
+  }
+  table.op-table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid #1e293b;
+    white-space: nowrap;
+  }
+  table.op-table tr:hover { background: rgba(56, 189, 248, 0.08); }
+  table.op-table tr.active-pc {
+    background: rgba(52, 211, 153, 0.22) !important;
+    outline: 1px solid var(--green);
+  }
+  .fmt-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-weight: 700;
+    font-size: .72rem;
+    color: #090d16;
+  }
+  .fmt-R { background: var(--cyan); }
+  .fmt-I { background: var(--gold); }
+  .fmt-S { background: var(--orange); }
+  .fmt-B { background: var(--purple); }
+  .fmt-U, .fmt-J { background: var(--green); }
+
+  .export-pre {
+    flex: 1;
+    margin: 0;
+    padding: 12px;
+    background: #090d14;
+    color: #cbd5e1;
+    font-family: "Consolas", monospace;
+    font-size: .8rem;
+    overflow: auto;
+    display: none;
+  }
+
+  /* ================= NEXYS A7 BOARD SIMULATOR ================= */
+  .board-body {
+    flex: 1;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow: auto;
+    background: radial-gradient(circle at center, #0f291e 0%, #091712 100%);
+  }
+  .nexys-pcb {
+    border: 2px solid #10b981;
+    border-radius: 10px;
+    padding: 12px;
+    background: rgba(6, 40, 30, 0.65);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .pcb-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  /* 7-Segment 8 Digits */
+  .seg7-box {
+    background: #05080c;
+    border: 2px solid #334155;
+    border-radius: 8px;
+    padding: 6px 14px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .seg7-digit {
+    font-family: "Consolas", monospace;
+    font-size: 1.65rem;
+    font-weight: 900;
+    color: #ef4444;
+    text-shadow: 0 0 10px rgba(239, 68, 68, 0.85);
+    background: #140707;
+    padding: 2px 7px;
+    border-radius: 4px;
+    border: 1px solid #290f0f;
+  }
+  /* VGA Mini Screen */
+  .vga-mini {
+    background: #000;
+    border: 2px solid #475569;
+    border-radius: 6px;
+    padding: 6px 10px;
+    min-width: 190px;
+    min-height: 52px;
+    font-family: "Consolas", monospace;
+    font-size: .82rem;
+    color: #38bdf8;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .vga-mini small { color: #64748b; font-size: .68rem; }
+
+  /* 16 LEDs */
+  .leds-row, .sw-row {
+    display: grid;
+    grid-template-columns: repeat(16, 1fr);
+    gap: 4px;
+    text-align: center;
+  }
+  .led-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    font-size: .65rem;
+    color: var(--mute);
+  }
+  .led-bulb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #1e293b;
+    border: 2px solid #475569;
+    transition: 0.1s;
+  }
+  .led-bulb.on {
+    background: #22c55e;
+    border-color: #86efac;
+    box-shadow: 0 0 12px #22c55e;
+  }
+  /* 16 Switches */
+  .sw-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    font-size: .65rem;
+    color: var(--mute);
+    cursor: pointer;
+    user-select: none;
+  }
+  .sw-toggle {
+    width: 18px;
+    height: 30px;
+    background: #0f172a;
+    border: 1px solid #64748b;
+    border-radius: 4px;
+    position: relative;
+    padding: 2px;
+  }
+  .sw-knob {
+    width: 12px;
+    height: 12px;
+    background: #94a3b8;
+    border-radius: 2px;
+    position: absolute;
+    bottom: 2px;
+    left: 2px;
+    transition: 0.12s;
+  }
+  .sw-item.on .sw-toggle { border-color: var(--gold); background: #2a200d; }
+  .sw-item.on .sw-knob {
+    bottom: auto;
+    top: 2px;
+    background: var(--gold);
+  }
+
+  /* ================= CPU DATAPATH & REGISTERS ================= */
+  .cpu-body {
+    flex: 1;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow: auto;
+  }
+  .pipeline-bar {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+  }
+  .stage-box {
+    background: #0b0f17;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: .75rem;
+  }
+  .stage-box b { display: block; color: var(--cyan); font-size: .78rem; }
+  .stage-box span { color: var(--txt); font-family: "Consolas", monospace; }
+
+  .reg-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 5px;
+    font-family: "Consolas", monospace;
+    font-size: .76rem;
+  }
+  .reg-cell {
+    background: #0b0f17;
+    border: 1px solid #1e293b;
+    border-radius: 5px;
+    padding: 4px 7px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .reg-cell.changed {
+    border-color: var(--gold);
+    background: rgba(251, 191, 36, 0.15);
+  }
+  .reg-name { color: var(--mute); }
+  .reg-val { color: var(--txt); font-weight: 600; }
+
+  .log-bar {
+    height: 28px;
+    background: #06090f;
+    border-top: 1px solid var(--border);
+    padding: 0 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: .78rem;
+    color: var(--mute);
+    flex-shrink: 0;
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== TOP BAR ==================== -->
+<div class="topbar">
+  <div class="brand">
+    <span class="logo">FPGA STUDIO</span>
+    <span>RISC-V &amp; MIPS Visual IDE — Digilent Nexys A7</span>
+  </div>
+
+  <div class="toolbar">
+    <label style="font-size:.8rem;color:var(--mute)">ตัวอย่าง:</label>
+    <select id="presetSelect" onchange="loadPreset()">
+      <option value="sw_led">1. สวิตช์ + 1 ออกไฟ LED &amp; 7-Segment (C)</option>
+      <option value="counter">2. ไฟวิ่ง Binary Counter &amp; นับเลข (C)</option>
+      <option value="calc">3. เครื่องคิดเลข ซ้าย+ขวา บนสวิตช์ (C)</option>
+      <option value="fib">4. คำนวณเลข Fibonacci โชว์ 7-Segment (C)</option>
+      <option value="asm_demo">5. เขียนคำสั่ง Assembly ล้วน (ASM)</option>
+    </select>
+
+    <label style="font-size:.8rem;color:var(--mute)">สถาปัตยกรรม:</label>
+    <select id="archSelect" onchange="compileCode()">
+      <option value="riscv">RISC-V (RV32I — แนะนำ)</option>
+      <option value="mips">MIPS (PyMIPS 32-bit)</option>
+    </select>
+
+    <button class="btn-primary" onclick="compileCode()">⚙️ 1. แปลงโค้ดเป็น Opcode</button>
+    <button class="btn-run" id="btnRun" onclick="toggleSim()">▶️ 2. จำลองรันบนบอร์ด</button>
+    <button class="btn-warn" onclick="stepSim()">⏭️ รันทีละบรรทัด (Step)</button>
+    <button onclick="resetSim()">🔄 รีเซ็ต</button>
+    <button class="btn-upload" onclick="uploadToBoard()">🚀 3. ส่งลงบอร์ดจริง (USB)</button>
+  </div>
+</div>
+
+<!-- ==================== 4-PANEL WORKSPACE ==================== -->
+<div class="workspace">
+
+  <!-- PANEL 1: CODE EDITOR (TOP-LEFT) -->
+  <div class="panel">
+    <div class="panel-hd">
+      <span>📝 ช่องเขียนโค้ด (C / Assembly Editor)</span>
+      <div class="tabs">
+        <span class="tab active" id="tabModeC" onclick="setMode('c')">ภาษา C</span>
+        <span class="tab" id="tabModeAsm" onclick="setMode('asm')">Assembly</span>
+      </div>
+    </div>
+    <div class="editor-wrap">
+      <div class="line-nums" id="lineNums">1</div>
+      <textarea id="codeEditor" spellcheck="false" oninput="updateLineNums()"></textarea>
+    </div>
+  </div>
+
+  <!-- PANEL 2: 32-BIT OPCODE & VHDL ROM (TOP-RIGHT) -->
+  <div class="panel">
+    <div class="panel-hd">
+      <span>🔍 ผลลัพธ์: คำสั่ง Assembly &amp; รหัส 32-bit Machine Code (Binary)</span>
+      <div class="tabs">
+        <span class="tab active" id="tabViewOp" onclick="switchRightTab('op')">ตาราง 32-bit Machine Code</span>
+        <span class="tab" id="tabViewVhdl" onclick="switchRightTab('vhdl')">โค้ด VHDL ROM (ใส่ Vivado)</span>
+        <span class="tab" id="tabViewCoe" onclick="switchRightTab('coe')">ไฟล์ .COE / Hex</span>
+        <button style="padding:2px 8px;font-size:.75rem" onclick="downloadCurrentView()">💾 ดาวน์โหลดไฟล์</button>
+      </div>
+    </div>
+
+    <div class="table-wrap" id="opcodeView">
+      <table class="op-table">
+        <thead>
+          <tr>
+            <th>PC</th>
+            <th>Type</th>
+            <th>คำสั่ง Assembly</th>
+            <th>Hex (32-bit)</th>
+            <th>32-bit Machine Code (Binary)</th>
+            <th>การทำงานของ CPU / Sim Memory Map</th>
+          </tr>
+        </thead>
+        <tbody id="opcodeBody"></tbody>
+      </table>
+    </div>
+    <pre class="export-pre" id="vhdlView"></pre>
+    <pre class="export-pre" id="coeView"></pre>
+  </div>
+
+  <!-- PANEL 3: VIRTUAL NEXYS A7 FPGA BOARD (BOTTOM-LEFT) -->
+  <div class="panel">
+    <div class="panel-hd">
+      <span>🎛️ บอร์ดจำลอง Digilent Nexys A7 (คลิกสวิตช์ด้านล่างเพื่อป้อน Input ได้เลย!)</span>
+      <span id="swHexLabel" style="color:var(--gold);font-family:Consolas">SWITCH = 0x0005 (5)</span>
+    </div>
+    <div class="board-body">
+      <div class="nexys-pcb">
+        <div class="pcb-top">
+          <div>
+            <div style="font-size:.72rem;color:#94a3b8;margin-bottom:3px">7-SEGMENT DISPLAY (8 หลัก — Address 0xF0000008)</div>
+            <div class="seg7-box" id="seg7Box"></div>
+          </div>
+          <div class="vga-mini">
+            <small>🖥 จอภาพ VGA / UART Monitor</small>
+            <div id="vgaText">Ready. กดปุ่ม ▶️ จำลองรันได้เลย</div>
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size:.72rem;color:#86efac;margin-bottom:4px">💡 ไฟ LED 16 ดวง (Output — Address 0xF0000000)</div>
+          <div class="leds-row" id="ledsRow"></div>
+        </div>
+
+        <div>
+          <div style="font-size:.72rem;color:#fcd34d;margin-bottom:4px">⌨️ สวิตช์ 16 ตัว (Input — Address 0xF0000004) — คลิกเพื่อโยกสวิตช์ขึ้น/ลง</div>
+          <div class="sw-row" id="swRow"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANEL 4: CPU PIPELINE & REGISTERS (BOTTOM-RIGHT) -->
+  <div class="panel">
+    <div class="panel-hd">
+      <span>🧠 สถานะภายใน CPU (5-Stage Pipeline &amp; Registers)</span>
+      <span id="cycleCount" style="color:var(--green);font-family:Consolas">PC = 0x0000 | Cycles = 0</span>
+    </div>
+    <div class="cpu-body">
+      <div class="pipeline-bar">
+        <div class="stage-box"><b>1. IF (Fetch)</b><span id="stIF">-</span></div>
+        <div class="stage-box"><b>2. ID (Decode)</b><span id="stID">-</span></div>
+        <div class="stage-box"><b>3. EX (ALU)</b><span id="stEX">-</span></div>
+        <div class="stage-box"><b>4. MEM (I/O)</b><span id="stMEM">-</span></div>
+        <div class="stage-box"><b>5. WB (Write)</b><span id="stWB">-</span></div>
+      </div>
+      <div style="font-size:.75rem;color:var(--mute);margin-top:2px">ค่าใน Register ของ CPU (ช่องสีทอง = เพิ่งเปลี่ยนค่า):</div>
+      <div class="reg-grid" id="regGrid"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ==================== STATUS BAR ==================== -->
+<div class="log-bar">
+  <span id="statusText">✅ พร้อมใช้งาน — เขียนโค้ดภาษา C ด้านซ้าย แล้วกด "1. แปลงโค้ดเป็น Opcode" หรือ "2. จำลองรันบนบอร์ด" ได้เลย</span>
+  <span>พอร์ตเชื่อมต่อบอร์ดจริง: <input type="text" id="comPort" value="COM3" style="width:65px;padding:2px 6px"></span>
+</div>
+
+<script>
+// ============================================================================
+// PRESET C & ASM PROGRAMS
+// ============================================================================
+const PRESETS = {
+  sw_led: `// โปรแกรมที่ 1: อ่านค่าจากสวิตช์ มาบวก 1 แล้วส่งออกไฟ LED และหน้าจอ 7-Segment
+// ลองคลิกโยกสวิตช์บนบอร์ดจำลองด้านล่างตอนโปรแกรมกำลังรันดูได้เลย!
+
+#define LED     (*(volatile int*)0xF0000000)
+#define SWITCH  (*(volatile int*)0xF0000004)
+#define SEG7    (*(volatile int*)0xF0000008)
+
+int main() {
+    while (1) {
+        int sw = SWITCH;        // 1. รับ Input จากสวิตช์ทั้ง 16 ตัว
+        int result = sw + 1;    // 2. ประมวลผลใน ALU (บวก 1)
+        LED = result;           // 3. ส่งออกไฟ LED 16 ดวง
+        SEG7 = result;          // 4. ส่งออกตัวเลข 7-Segment 8 หลัก
+    }
+}`,
+
+  counter: `// โปรแกรมที่ 2: นับเลขขึ้นเรื่อยๆ (Binary Counter) ออกไฟ LED และ 7-Segment
+#define LED     (*(volatile int*)0xF0000000)
+#define SWITCH  (*(volatile int*)0xF0000004)
+#define SEG7    (*(volatile int*)0xF0000008)
+
+int main() {
+    int count = 0;
+    while (1) {
+        int step = SWITCH;      // ใช้สวิตช์กำหนดว่าจะให้บวกทีละเท่าไหร่
+        if (step == 0) {
+            step = 1;           // ถ้าไม่ได้ยกสวิตช์เลย ให้บวกทีละ 1
+        }
+        count = count + step;
+        LED = count;
+        SEG7 = count;
+    }
+}`,
+
+  calc: `// โปรแกรมที่ 3: เครื่องคิดเลข (สวิตช์ซ้าย 8 ตัว + สวิตช์ขวา 8 ตัว)
+#define LED     (*(volatile int*)0xF0000000)
+#define SWITCH  (*(volatile int*)0xF0000004)
+#define SEG7    (*(volatile int*)0xF0000008)
+
+int main() {
+    while (1) {
+        int raw = SWITCH;
+        int a = raw >> 8;       // สวิตช์ตัวที่ 8-15 (ฝั่งซ้าย)
+        int b = raw & 255;      // สวิตช์ตัวที่ 0-7  (ฝั่งขวา)
+        int sum = a + b;        // บวกเลข
+        LED = sum;
+        SEG7 = sum;
+    }
+}`,
+
+  fib: `// โปรแกรมที่ 4: คำนวณลำดับเลข Fibonacci (0, 1, 1, 2, 3, 5, 8, 13, 21, ...)
+#define LED     (*(volatile int*)0xF0000000)
+#define SEG7    (*(volatile int*)0xF0000008)
+
+int main() {
+    int a = 0;
+    int b = 1;
+    while (1) {
+        LED = a;
+        SEG7 = a;
+        int next = a + b;
+        a = b;
+        b = next;
+    }
+}`,
+
+  asm_demo: `# โหมดเขียนคำสั่ง Assembly โดยตรง
+lui a5, 0xF0000       # ตั้ง Base Address I/O = 0xF0000000
+addi s0, x0, 0        # ตัวแปรนับ s0 = 0
+loop:
+lw a4, 4(a5)          # อ่านสวิตช์ (0xF0000004)
+add s0, s0, a4        # บวกค่าสวิตช์เข้ากับ s0
+addi s0, s0, 1        # บวกเพิ่มอีก 1
+sw s0, 0(a5)          # ส่งออกไฟ LED (0xF0000000)
+sw s0, 8(a5)          # ส่งออก 7-Segment (0xF0000008)
+j loop                # วนลูปกลับไปทำซ้ำ`
+};
+
+// ============================================================================
+// STATE VARIABLES
+// ============================================================================
+let currentMode = "c";
+let rightTab = "op";
+let compiledIns = [];
+let lastVhdl = "";
+let lastCoe = "";
+
+// Simulator State
+let simTimer = null;
+let pcIndex = 0;
+let cycles = 0;
+let regs = new Array(32).fill(0);
+let prevRegs = new Array(32).fill(0);
+let dmem = {};
+let swValue = 5;   // Default switch = 5 so user immediately sees 5+1 = 6
+let ledValue = 0;
+let seg7Value = 0;
+
+const RV_NAMES = [
+  "x0 (zero)","x1 (ra)","x2 (sp)","x3 (gp)","x4 (tp)","x5 (t0)","x6 (t1)","x7 (t2)",
+  "x8 (s0)","x9 (s1)","x10 (a0)","x11 (a1)","x12 (a2)","x13 (a3)","x14 (a4)","x15 (a5)",
+  "x16 (a6)","x17 (a7)","x18 (s2)","x19 (s3)","x20 (s4)","x21 (s5)","x22 (s6)","x23 (s7)",
+  "x24 (s8)","x25 (s9)","x26 (s10)","x27 (s11)","x28 (t3)","x29 (t4)","x30 (t5)","x31 (t6)"
+];
+
+// ============================================================================
+// UI INITIALIZATION
+// ============================================================================
+function initBoardUI() {
+  // 8-digit 7-segment
+  const segBox = document.getElementById("seg7Box");
+  segBox.innerHTML = "";
+  for (let i = 0; i < 8; i++) {
+    const d = document.createElement("div");
+    d.className = "seg7-digit";
+    d.id = `segDigit_${i}`;
+    d.textContent = "0";
+    segBox.appendChild(d);
+  }
+
+  // 16 LEDs (15 down to 0)
+  const ledsRow = document.getElementById("ledsRow");
+  ledsRow.innerHTML = "";
+  for (let i = 15; i >= 0; i--) {
+    const item = document.createElement("div");
+    item.className = "led-item";
+    item.innerHTML = `<div class="led-bulb" id="led_${i}"></div><span>LD${i}</span>`;
+    ledsRow.appendChild(item);
+  }
+
+  // 16 Switches (15 down to 0)
+  const swRow = document.getElementById("swRow");
+  swRow.innerHTML = "";
+  for (let i = 15; i >= 0; i--) {
+    const isOn = ((swValue >> i) & 1) === 1;
+    const item = document.createElement("div");
+    item.className = "sw-item" + (isOn ? " on" : "");
+    item.id = `sw_${i}`;
+    item.onclick = () => toggleSwitch(i);
+    item.innerHTML = `<div class="sw-toggle"><div class="sw-knob"></div></div><span>SW${i}</span>`;
+    swRow.appendChild(item);
+  }
+  updateBoardDisplay();
+  renderRegisters();
+}
+
+function toggleSwitch(bit) {
+  swValue ^= (1 << bit);
+  const el = document.getElementById(`sw_${bit}`);
+  el.classList.toggle("on", ((swValue >> bit) & 1) === 1);
+  document.getElementById("swHexLabel").textContent =
+    `SWITCH = 0x${(swValue >>> 0).toString(16).toUpperCase().padStart(4, "0")} (${swValue})`;
+}
+
+function updateBoardDisplay() {
+  for (let i = 0; i < 16; i++) {
+    const bulb = document.getElementById(`led_${i}`);
+    if (bulb) bulb.classList.toggle("on", ((ledValue >> i) & 1) === 1);
+  }
+  const decStr = Math.abs(seg7Value).toString(10).padStart(8, "0").slice(-8);
+  for (let i = 0; i < 8; i++) {
+    const d = document.getElementById(`segDigit_${i}`);
+    if (d) d.textContent = decStr[i];
+  }
+}
+
+function renderRegisters() {
+  const grid = document.getElementById("regGrid");
+  // Show the 16 most commonly used registers so it stays clean and readable
+  const showIdx = [0, 1, 2, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
+  grid.innerHTML = "";
+  for (const idx of showIdx) {
+    const cell = document.createElement("div");
+    const changed = regs[idx] !== prevRegs[idx];
+    cell.className = "reg-cell" + (changed ? " changed" : "");
+    const v = regs[idx] >>> 0;
+    const hex = "0x" + v.toString(16).toUpperCase().padStart(8, "0");
+    cell.innerHTML = `<span class="reg-name">${RV_NAMES[idx]}</span><span class="reg-val" title="ค่าทศนิยม: ${regs[idx]}">${hex} (${regs[idx]})</span>`;
+    grid.appendChild(cell);
+  }
+}
+
+function updateLineNums() {
+  const code = document.getElementById("codeEditor").value;
+  const count = code.split("\n").length;
+  const lines = [];
+  for (let i = 1; i <= count; i++) lines.push(i);
+  document.getElementById("lineNums").innerHTML = lines.join("<br>");
+}
+
+function setMode(mode) {
+  currentMode = mode;
+  document.getElementById("tabModeC").classList.toggle("active", mode === "c");
+  document.getElementById("tabModeAsm").classList.toggle("active", mode === "asm");
+}
+
+function switchRightTab(tab) {
+  rightTab = tab;
+  document.getElementById("tabViewOp").classList.toggle("active", tab === "op");
+  document.getElementById("tabViewVhdl").classList.toggle("active", tab === "vhdl");
+  document.getElementById("tabViewCoe").classList.toggle("active", tab === "coe");
+
+  document.getElementById("opcodeView").style.display = (tab === "op") ? "block" : "none";
+  document.getElementById("vhdlView").style.display = (tab === "vhdl") ? "block" : "none";
+  document.getElementById("coeView").style.display = (tab === "coe") ? "block" : "none";
+}
+
+function loadPreset() {
+  const key = document.getElementById("presetSelect").value;
+  document.getElementById("codeEditor").value = PRESETS[key];
+  setMode(key === "asm_demo" ? "asm" : "c");
+  updateLineNums();
+  compileCode();
+}
+
+// ============================================================================
+// COMPILE C / ASM -> 32-BIT OPCODE VIA BACKEND
+// ============================================================================
+async function compileCode() {
+  const code = document.getElementById("codeEditor").value;
+  const arch = document.getElementById("archSelect").value;
+  try {
+    const res = await fetch("/api/compile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, mode: currentMode, arch })
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      setStatus("❌ แปลภาษาไม่สำเร็จ: " + data.error);
+      return;
+    }
+    compiledIns = data.instructions;
+    lastVhdl = data.vhdl;
+    lastCoe = data.coe;
+
+    document.getElementById("vhdlView").textContent = lastVhdl;
+    document.getElementById("coeView").textContent = lastCoe;
+
+    const tbody = document.getElementById("opcodeBody");
+    tbody.innerHTML = "";
+    compiledIns.forEach((ins, idx) => {
+      const tr = document.createElement("tr");
+      tr.id = `opRow_${idx}`;
+      tr.innerHTML = `
+        <td style="color:var(--cyan)">${ins.pc}</td>
+        <td><span class="fmt-badge fmt-${ins.fmt}">${ins.fmt}</span></td>
+        <td style="color:#fcd34d;font-weight:600">${ins.asm}</td>
+        <td style="color:var(--purple)">${ins.hex}</td>
+        <td style="color:#94a3b8;letter-spacing:0.5px">${ins.fields}</td>
+        <td style="color:var(--green)">${ins.desc}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    resetSim();
+    setStatus(`✅ แปลโค้ดสำเร็จ! ได้รหัสคำสั่ง ${arch.toUpperCase()} 32-bit ทั้งหมด ${compiledIns.length} บรรทัด`);
+  } catch (e) {
+    setStatus("❌ ไม่สามารถติดต่อเซิร์ฟเวอร์แอพได้: " + e.message);
+  }
+}
+
+// ============================================================================
+// CYCLE-BY-CYCLE CPU & BOARD SIMULATOR
+// ============================================================================
+function resetSim() {
+  if (simTimer) {
+    clearInterval(simTimer);
+    simTimer = null;
+    document.getElementById("btnRun").textContent = "▶️ 2. จำลองรันบนบอร์ด";
+  }
+  pcIndex = 0;
+  cycles = 0;
+  regs.fill(0);
+  prevRegs.fill(0);
+  dmem = {};
+  ledValue = 0;
+  seg7Value = 0;
+  updateBoardDisplay();
+  renderRegisters();
+  highlightPC();
+  document.getElementById("cycleCount").textContent = `PC = 0x0000 | Cycles = 0`;
+  document.getElementById("stIF").textContent = "-";
+  document.getElementById("stID").textContent = "-";
+  document.getElementById("stEX").textContent = "-";
+  document.getElementById("stMEM").textContent = "-";
+  document.getElementById("stWB").textContent = "-";
+}
+
+function toggleSim() {
+  if (simTimer) {
+    clearInterval(simTimer);
+    simTimer = null;
+    document.getElementById("btnRun").textContent = "▶️ 2. จำลองรันบนบอร์ด";
+    setStatus("⏸️ หยุดจำลองชั่วคราว");
+  } else {
+    if (compiledIns.length === 0) compileCode();
+    simTimer = setInterval(stepSim, 180);
+    document.getElementById("btnRun").textContent = "⏸️ หยุดจำลอง";
+    setStatus("🟢 กำลังรันคำสั่ง CPU บนบอร์ดจำลอง — ลองคลิกสวิตช์ SW0-SW15 ด้านล่างดูไฟ LED เปลี่ยนได้เลย!");
+  }
+}
+
+function regIdx(tok) {
+  if (!tok) return 0;
+  tok = tok.trim().replace("$", "").toLowerCase();
+  if (tok.startsWith("x") && !isNaN(tok.slice(1))) return parseInt(tok.slice(1));
+  const names = [
+    "zero","ra","sp","gp","tp","t0","t1","t2",
+    "s0","s1","a0","a1","a2","a3","a4","a5",
+    "a6","a7","s2","s3","s4","s5","s6","s7",
+    "s8","s9","s10","s11","t3","t4","t5","t6"
+  ];
+  const i = names.indexOf(tok);
+  if (i >= 0) return i;
+  const mips = [
+    "zero","at","v0","v1","a0","a1","a2","a3",
+    "t0","t1","t2","t3","t4","t5","t6","t7",
+    "s0","s1","s2","s3","s4","s5","s6","s7",
+    "t8","t9","k0","k1","gp","sp","fp","ra"
+  ];
+  const m = mips.indexOf(tok);
+  return m >= 0 ? m : 0;
+}
+
+function stepSim() {
+  if (compiledIns.length === 0) return;
+  if (pcIndex < 0 || pcIndex >= compiledIns.length) pcIndex = 0;
+
+  prevRegs = [...regs];
+  const ins = compiledIns[pcIndex];
+  const parts = ins.asm.trim().split(/[\s,]+/);
+  const op = parts[0].toLowerCase();
+
+  let nextPcIndex = pcIndex + 1;
+  let exInfo = "-";
+  let memInfo = "-";
+  let wbInfo = "-";
+
+  if (op === "lui") {
+    const rd = regIdx(parts[1]);
+    const imm = parseInt(parts[2], 0);
+    regs[rd] = (imm << 12) | 0;
+    exInfo = `${parts[1]} = 0x${(regs[rd]>>>0).toString(16).toUpperCase()}`;
+    wbInfo = `Write ${parts[1]}`;
+  } else if (op === "addi" || op === "addiu" || op === "ori" || op === "andi" || op === "xori" || op === "slli" || op === "srli") {
+    const rd = regIdx(parts[1]);
+    const rs1 = regIdx(parts[2]);
+    const imm = parseInt(parts[3], 0);
+    if (op === "addi" || op === "addiu") regs[rd] = (regs[rs1] + imm) | 0;
+    else if (op === "andi") regs[rd] = regs[rs1] & imm;
+    else if (op === "ori") regs[rd] = regs[rs1] | imm;
+    else if (op === "xori") regs[rd] = regs[rs1] ^ imm;
+    else if (op === "slli") regs[rd] = regs[rs1] << imm;
+    else if (op === "srli") regs[rd] = regs[rs1] >>> imm;
+    exInfo = `ALU = ${regs[rd]}`;
+    wbInfo = `${parts[1]} <= ${regs[rd]}`;
+  } else if (["add","sub","and","or","xor","sll","srl","slt","mul"].includes(op)) {
+    const rd = regIdx(parts[1]);
+    const rs1 = regIdx(parts[2]);
+    const rs2 = regIdx(parts[3]);
+    if (op === "add") regs[rd] = (regs[rs1] + regs[rs2]) | 0;
+    else if (op === "sub") regs[rd] = (regs[rs1] - regs[rs2]) | 0;
+    else if (op === "and") regs[rd] = regs[rs1] & regs[rs2];
+    else if (op === "or") regs[rd] = regs[rs1] | regs[rs2];
+    else if (op === "xor") regs[rd] = regs[rs1] ^ regs[rs2];
+    else if (op === "sll") regs[rd] = regs[rs1] << regs[rs2];
+    else if (op === "srl") regs[rd] = regs[rs1] >>> regs[rs2];
+    else if (op === "slt") regs[rd] = (regs[rs1] < regs[rs2]) ? 1 : 0;
+    else if (op === "mul") regs[rd] = Math.imul(regs[rs1], regs[rs2]);
+    exInfo = `ALU = ${regs[rd]}`;
+    wbInfo = `${parts[1]} <= ${regs[rd]}`;
+  } else if (op === "lw") {
+    const rd = regIdx(parts[1]);
+    const m = parts[2].match(/([-\dxXa-fA-F]+)\(([^)]+)\)/);
+    const off = m ? parseInt(m[1], 0) : 0;
+    const rs1 = m ? regIdx(m[2]) : 0;
+    const addr = (regs[rs1] + off) >>> 0;
+    let val = dmem[addr] || 0;
+    if (addr === 0xF0000004 || off === 4) {
+      val = swValue;
+      memInfo = `อ่านสวิตช์ = ${val}`;
+    } else {
+      memInfo = `MEM[0x${addr.toString(16)}]`;
+    }
+    regs[rd] = val;
+    wbInfo = `${parts[1]} <= ${val}`;
+  } else if (op === "sw") {
+    const rs2 = regIdx(parts[1]);
+    const m = parts[2].match(/([-\dxXa-fA-F]+)\(([^)]+)\)/);
+    const off = m ? parseInt(m[1], 0) : 0;
+    const rs1 = m ? regIdx(m[2]) : 0;
+    const addr = (regs[rs1] + off) >>> 0;
+    const val = regs[rs2];
+    dmem[addr] = val;
+    if (addr === 0xF0000000 || off === 0) {
+      ledValue = val;
+      memInfo = `เขียนไฟ LED = ${val}`;
+    } else if (addr === 0xF0000008 || off === 8) {
+      seg7Value = val;
+      memInfo = `เขียน 7-Seg = ${val}`;
+    } else {
+      memInfo = `MEM[0x${addr.toString(16)}] <= ${val}`;
+    }
+    document.getElementById("vgaText").textContent =
+      `LED = ${ledValue} (0x${(ledValue & 0xFFFF).toString(16).toUpperCase()}) | 7-SEG = ${seg7Value}`;
+  } else if (["beq","bne","blt","bge"].includes(op)) {
+    const rs1 = regIdx(parts[1]);
+    const rs2 = regIdx(parts[2]);
+    let take = false;
+    if (op === "beq") take = regs[rs1] === regs[rs2];
+    if (op === "bne") take = regs[rs1] !== regs[rs2];
+    if (op === "blt") take = regs[rs1] < regs[rs2];
+    if (op === "bge") take = regs[rs1] >= regs[rs2];
+    exInfo = take ? "Branch Taken" : "Not Taken";
+    if (take) {
+      // Extract branch offset from description or target PC
+      const mOff = ins.desc.match(/PC \+= (-?\d+)/);
+      if (mOff) {
+        const byteOff = parseInt(mOff[1], 10);
+        nextPcIndex = pcIndex + (byteOff / 4);
+      }
+    }
+  } else if (op === "j" || op === "jal") {
+    const mOff = ins.desc.match(/PC \+= (-?\d+)/);
+    if (mOff) {
+      nextPcIndex = pcIndex + (parseInt(mOff[1], 10) / 4);
+    } else {
+      nextPcIndex = 1; // loop back to instruction 1
+    }
+    exInfo = `Jump -> PC ${nextPcIndex * 4}`;
+  }
+
+  regs[0] = 0; // x0 is always 0
+  cycles++;
+  document.getElementById("stIF").textContent = `${ins.pc}: ${ins.hex}`;
+  document.getElementById("stID").textContent = ins.asm;
+  document.getElementById("stEX").textContent = exInfo;
+  document.getElementById("stMEM").textContent = memInfo;
+  document.getElementById("stWB").textContent = wbInfo;
+
+  highlightPC();
+  pcIndex = nextPcIndex;
+  document.getElementById("cycleCount").textContent =
+    `PC = ${ins.pc} | Cycles = ${cycles}`;
+  updateBoardDisplay();
+  renderRegisters();
+}
+
+function highlightPC() {
+  compiledIns.forEach((_, idx) => {
+    const row = document.getElementById(`opRow_${idx}`);
+    if (row) row.classList.toggle("active-pc", idx === pcIndex);
+  });
+}
+
+// ============================================================================
+// DOWNLOAD & HARDWARE UPLOAD
+// ============================================================================
+function downloadCurrentView() {
+  let content = lastVhdl;
+  let filename = "instruction_memory.vhd";
+  if (rightTab === "coe") {
+    content = lastCoe;
+    filename = "program.coe";
+  } else if (rightTab === "op") {
+    content = compiledIns.map(i => `${i.bin} // ${i.pc}: ${i.asm}`).join("\n");
+    filename = "program_opcode.txt";
+  }
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+}
+
+async function uploadToBoard() {
+  const port = document.getElementById("comPort").value;
+  const words = compiledIns.map(i => i.word);
+  setStatus(`🚀 กำลังส่ง Opcode ${words.length} คำสั่ง ไปยังบอร์ด Nexys A7 ที่พอร์ต ${port}...`);
+  try {
+    const res = await fetch("/api/upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ port, words })
+    });
+    const data = await res.json();
+    if (data.ok) setStatus("✅ " + data.msg);
+    else setStatus("⚠️ " + data.error);
+  } catch (e) {
+    setStatus("⚠️ " + e.message);
+  }
+}
+
+function setStatus(msg) {
+  document.getElementById("statusText").textContent = msg;
+}
+
+window.onload = () => {
+  initBoardUI();
+  loadPreset();
+};
+</script>
+</body>
+</html>

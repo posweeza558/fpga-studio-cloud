@@ -87,15 +87,10 @@ module ex (input wire rst,                  //译码阶段送到执行阶段的�
     //        a. reg1_i为正数，reg2_i_mux为正数，但二者之和为负数
     //        b. reg1_i为负数，reg2_i_mux为负数，但二者之和为整数
     assign ov_sum = ((!reg1_i[31] && !reg2_i_mux[31]) && result_sum[31]) || ((reg1_i[31] && reg2_i_mux[31]) && !result_sum[31]);
-    // 4. 计算操作数1是否小于操作数2，分两种情况
-    //    a. aluop_i为`EXE_SLT_OP表示有符号运算，此时又分三种情况
-    //          - reg1_i为负数，reg2_i_mux为正数，显然reg1_i小于reg2_i_mux
-    //          - reg1_i为正数，reg2_i_mux也为正数，此时通过判断result_sum的正负来判断操作数一是否小于操作数二
-    //          - reg1_i为负数，reg2_i_mux也为负数，此时通过判断result_sum的正负来判断操作数一是否小于操作数二
-    //    b. 无符号数比较的时候，直接用比较运算符比较reg1_i和reg2_i
+    // 4. 计算操作数1是否小于操作数2，有符号/无符号比较
     assign reg1_lt_reg2 = ((aluop_i == `EXE_SLT_OP) ? 
-    (reg1_i[31] && !reg2_i_mux[31]) || (!reg1_i[31] && !reg2_i_mux[31] && result_sum[31]) || (reg1_i[31] && reg2_i_mux[31] && result_sum[31])
-    : (reg1_i < reg2_i));
+                           ($signed(reg1_i) < $signed(reg2_i)) : 
+                           (reg1_i < reg2_i));
     // 5. 对操作数1按位取反，赋值给reg1_i_not
     assign reg1_i_not = ~reg1_i;
     /*****************************************第二段：依据不同的算术运算类型，给arithmetices变量赋值**************************************/
@@ -159,27 +154,19 @@ module ex (input wire rst,                  //译码阶段送到执行阶段的�
     end
 
     /*****************************************第三段：进行乘法运算**************************************/
-    // 1. 取得乘法运算的被乘数，如果是有符号乘法且被乘数是负数，那么取补码
-    assign opdata1_mult = ((aluop_i == `EXE_MUL_OP || aluop_i == `EXE_MULT_OP || aluop_i == `EXE_MADD_OP || aluop_i == `EXE_MSUB_OP) && (reg1_i[31] == `NegNum)) ? (reg1_i_not + 1) : reg1_i;
-    // 2. 取得乘法运算的乘数，如果是有符号乘法且乘数是负数，那么取补码
-    assign opdata2_mult = ((aluop_i == `EXE_MUL_OP || aluop_i == `EXE_MULT_OP || aluop_i == `EXE_MADD_OP || aluop_i == `EXE_MSUB_OP) && (reg2_i[31] == `NegNum)) ? (reg2_i_mux) : reg2_i;
-    // 3. 得到临时乘法结果
-    assign hilo_temp = opdata1_mult * opdata2_mult;
-    // 4. 对临时乘法结果进行修正，最终的乘法结果保存在变量mulres中
-    //      a. 如果是有符号乘法指令mul、mult，那么需要修正临时乘法结果
-    //          - 如果被乘数与乘数一正一负，那么需要对临时乘法结果hilo_temp求补码，作为最后的结果赋值给mulres
-    //          - 如果被乘数与乘数同号，那么hilo_temp的值就作为最终的乘法结果赋值给mulres
-    //      b. 如果是无符号乘法指令multu，那么hilo_temp的值就作为最终的乘法结果赋值给 mulres
+    wire signed [63:0] mult_signed = $signed(reg1_i) * $signed(reg2_i);
+    wire [63:0] mult_unsigned = reg1_i * reg2_i;
+    wire is_signed_mult = (aluop_i == `EXE_MUL_OP || aluop_i == `EXE_MULT_OP || aluop_i == `EXE_MADD_OP || aluop_i == `EXE_MSUB_OP);
 
     always @(*) begin
         if (rst == `RstEnable) begin
             mulres <= {`ZeroWord, `ZeroWord};
         end
-        else if ((aluop_i == `EXE_MUL_OP || aluop_i == `EXE_MULT_OP || aluop_i == `EXE_MADD_OP || aluop_i == `EXE_MSUB_OP) && (reg1_i[31] ^ reg2_i[31] == `NegNum)) begin
-            mulres <= ~hilo_temp + 1;
+        else if (is_signed_mult) begin
+            mulres <= mult_signed;
         end
         else begin
-            mulres <= hilo_temp;
+            mulres <= mult_unsigned;
         end
     end
 

@@ -377,6 +377,10 @@ def decode_mips_word(word, pc=0, sym_map=None, reg_tracker=None):
         elif funct == 0x0D:
             code = (word >> 6) & 0xFFFFF
             return "R", fields, (f"break {code}" if code else "break"), "Breakpoint (Debugger Trap)"
+        elif funct == 0x0A:
+            return "R", fields, f"movz {rd_n}, {rs_n}, {rt_n}", f"if ({rt_n} == 0) {rd_n} = {rs_n}"
+        elif funct == 0x0B:
+            return "R", fields, f"movn {rd_n}, {rs_n}, {rt_n}", f"if ({rt_n} != 0) {rd_n} = {rs_n}"
         elif funct == 0x10:
             return "R", fields, f"mfhi {rd_n}", f"{rd_n} = HI"
         elif funct == 0x11:

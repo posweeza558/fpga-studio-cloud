@@ -209,6 +209,7 @@ module uart_prog_loader #(
     reg [1:0]  sub_byte;
     reg [31:0] words_rem;
     reg [31:0] word_buf;
+    reg [11:0] next_addr;
     wire [31:0] next_word = {byte_val, word_buf[31:8]};
 
     always @(posedge clk or posedge rst) begin
@@ -218,6 +219,7 @@ module uart_prog_loader #(
             sub_byte       <= 2'd0;
             words_rem      <= 32'd0;
             word_buf       <= 32'd0;
+            next_addr      <= 12'd0;
             prog_busy_o    <= 1'b0;
             prog_we_o      <= 1'b0;
             prog_dmem_we_o <= 1'b0;
@@ -270,7 +272,7 @@ module uart_prog_loader #(
                         word_buf <= next_word;
                         if (sub_byte == 2'd3) begin
                             sub_byte    <= 2'd0;
-                            prog_addr_o <= is_dmem ? next_word[27:16] : 12'd0;
+                            next_addr   <= is_dmem ? next_word[27:16] : 12'd0;
                             if ((is_dmem ? {16'd0, next_word[15:0]} : next_word) == 32'd0) begin
                                 prog_busy_o <= 1'b0;
                                 st          <= ST_M0;
@@ -286,15 +288,16 @@ module uart_prog_loader #(
                         word_buf <= next_word;
                         if (sub_byte == 2'd3) begin
                             sub_byte       <= 2'd0;
+                            prog_addr_o    <= next_addr;
+                            next_addr      <= next_addr + 12'd1;
+                            prog_wdata_o   <= next_word;
                             prog_we_o      <= ~is_dmem;
                             prog_dmem_we_o <= is_dmem;
-                            prog_wdata_o   <= next_word;
                             if (words_rem <= 32'd1) begin
                                 prog_busy_o <= 1'b0;
                                 st          <= ST_M0;
                             end else begin
                                 words_rem   <= words_rem - 32'd1;
-                                prog_addr_o <= prog_addr_o + 12'd1;
                             end
                         end else begin
                             sub_byte <= sub_byte + 2'd1;

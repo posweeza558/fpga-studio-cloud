@@ -90,15 +90,15 @@ def check_wsl_status() -> Dict[str, Any]:
         # Check for tools in the chosen distro
         tools = {"yosys": False, "nextpnr-xilinx": False, "docker": False, "python3": False}
         if default_distro:
-            check_cmd = "which yosys; which nextpnr-xilinx; which docker; which python3"
+            check_cmd = "(command -v yosys || test -x /usr/bin/yosys) && echo 'FOUND_YOSYS'; (command -v nextpnr-xilinx || test -x /opt/openxc7/bin/nextpnr-xilinx) && echo 'FOUND_NEXTPNR'; command -v docker; command -v python3"
             r_tools = subprocess.run(
                 ["wsl.exe", "-d", default_distro, "--", "bash", "-c", check_cmd],
                 capture_output=True,
                 timeout=10,
             )
             t_out = r_tools.stdout.decode("utf-8", errors="ignore")
-            tools["yosys"] = "yosys" in t_out
-            tools["nextpnr-xilinx"] = "nextpnr-xilinx" in t_out
+            tools["yosys"] = "FOUND_YOSYS" in t_out or "yosys" in t_out
+            tools["nextpnr-xilinx"] = "FOUND_NEXTPNR" in t_out or "nextpnr" in t_out
             tools["docker"] = "docker" in t_out
             tools["python3"] = "python3" in t_out
 
@@ -137,7 +137,7 @@ def convert_win_to_wsl_path(win_path: str, distro: Optional[str] = None) -> str:
         cmd.extend(["-d", distro])
     cmd.extend(["--", "wslpath", "-u", win_path.replace("\\", "/")])
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5)
         path = res.stdout.strip()
         if path.startswith("/"):
             return path
@@ -158,7 +158,7 @@ def generate_wsl_build_script(
 ) -> str:
     """
     Generate build_wsl.sh inside the SoC package directory.
-    Supports either native openXC7/Yosys or openXC7 Docker container inside WSL.
+    Uses native openXC7/Yosys inside WSL.
     """
     script_path = os.path.join(pkg_dir, "build_wsl.sh")
 
@@ -172,74 +172,16 @@ cd "$DIR"
 CPU="{cpu_name}"
 DEVICE="{target_part}"
 
+export PATH="/opt/openxc7/bin:/usr/bin:/bin:/usr/local/bin"
+
 echo "================================================================="
-echo "  FPGA Studio — Local WSL Synthesis Pipeline (Zero-Vivado)"
+echo "  FPGA Studio - Local WSL Synthesis Pipeline (Zero-Vivado)"
 echo "  Target CPU: $CPU | Device: $DEVICE"
 echo "================================================================="
 
-# 1. Check if openXC7 Docker container is available in WSL
-if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-    echo "✓ ตรวจพบ Docker ใน WSL: ใช้คอนเทนเนอร์ regymm/openxc7:latest"
-    docker run --rm -v "$DIR:/work" -w /work regymm/openxc7:latest bash -c '
-        set -e
-        echo "=== [1/3] Synthesizing SoC with Yosys ==="
-        FILES="nexys_a7_soc_top.v uart_prog_loader.v"
-        for f in rtl_cpu/*.v; do
-            [ -e "$f" ] || continue
-            bn=$(basename "$f")
-            if [ "$bn" != "top.v" ] && [ "$bn" != "inst_rom.v" ] && [ "$bn" != "data_ram.v" ] && [ "$bn" != "openmips_min_sopc.v" ]; then
-                FILES="$FILES $f"
-            fi
-        done
-        yosys -p "
-            read_verilog -I rtl_cpu $FILES;
-            hierarchy -top nexys_a7_soc_top;
-            synth_xilinx -top nexys_a7_soc_top -family xc7 -json soc.json
-        "
-
-        echo "=== [2/3] Place & Route with nextpnr-xilinx ==="
-        CHIPDB="/work/chipdb/xc7a100t.bin"
-        if [ ! -f "$CHIPDB" ]; then
-            mkdir -p /work/chipdb
-            EXISTING_DB=$(find / -name "*xc7a100t*.bin" 2>/dev/null | head -n 1)
-            if [ -n "$EXISTING_DB" ]; then
-                CHIPDB="$EXISTING_DB"
-            else
-                BBA_SCRIPT=$(find / -name "bbaexport.py" 2>/dev/null | head -n 1)
-                if [ -n "$BBA_SCRIPT" ]; then
-                    pypy3 "$BBA_SCRIPT" --device xc7a100tcsg324-1 --bba /work/chipdb/xc7a100t.bba || python3 "$BBA_SCRIPT" --device xc7a100tcsg324-1 --bba /work/chipdb/xc7a100t.bba
-                    bbasm -l /work/chipdb/xc7a100t.bba "$CHIPDB"
-                fi
-            fi
-        fi
-
-        nextpnr-xilinx \
-            --chipdb "$CHIPDB" \
-            --xdc Nexys-A7-100T-Master.xdc \
-            --json soc.json \
-            --fasm soc.fasm \
-            --ignore-loops \
-            --timing-allow-fail \
-            --force || true
-
-        if [ -f soc.fasm ]; then
-            echo "=== [3/3] Generating Artix-7 Bitstream ==="
-            PRJXRAY_DB=$(find / -type d -name "artix7" | grep "prjxray-db" | head -n 1)
-            fasm2frames --part xc7a100tcsg324-1 --db-root "$PRJXRAY_DB" soc.fasm soc.frames
-            PART_YAML=$(find "$PRJXRAY_DB" -name "part.yaml" | grep "xc7a100t" | head -n 1)
-            xc7frames2bit --part_file "$PART_YAML" --frm_file soc.frames --output_file "nexys_a7_{cpu_name}.bit"
-            echo "SUCCESS: Generated nexys_a7_{cpu_name}.bit"
-        else
-            echo "ERROR: Place & route did not generate soc.fasm"
-            exit 1
-        fi
-    '
-    exit 0
-fi
-
-# 2. Native toolchain check
+# 1. Native toolchain check
 if ! command -v yosys >/dev/null 2>&1; then
-    echo "⚠️ ไม่พบ Yosys ใน WSL กรุณาติดตั้งด้วย: sudo apt update && sudo apt install -y yosys"
+    echo "ERROR: Yosys not found in WSL. Install with: sudo apt update && sudo apt install -y yosys"
     exit 1
 fi
 
@@ -259,19 +201,34 @@ yosys -p "
     synth_xilinx -top nexys_a7_soc_top -family xc7 -json soc.json
 "
 
-if command -v nextpnr-xilinx >/dev/null 2>&1; then
-    echo "=== [2/3] Place & Route with nextpnr-xilinx ==="
-    nextpnr-xilinx --chipdb "$HOME/chipdb/xc7a100t.bin" --xdc Nexys-A7-100T-Master.xdc --json soc.json --fasm soc.fasm --ignore-loops --timing-allow-fail || true
+CHIPDB="/opt/openxc7/chipdb/xc7a100tcsg324.bin"
+if [ ! -f "$CHIPDB" ]; then
+    CHIPDB=$(find /opt/openxc7 -name "*xc7a100t*.bin" 2>/dev/null | head -n 1)
 fi
 
-if [ -f soc.fasm ] && command -v xc7frames2bit >/dev/null 2>&1; then
+echo "=== [2/3] Place & Route with nextpnr-xilinx ==="
+nextpnr-xilinx \\
+    --chipdb "$CHIPDB" \\
+    --xdc Nexys-A7-100T-Master.xdc \\
+    --json soc.json \\
+    --fasm soc.fasm \\
+    --ignore-loops \\
+    --timing-allow-fail \\
+    --force || true
+
+if [ -f soc.fasm ]; then
     echo "=== [3/3] Generating Artix-7 Bitstream ==="
-    PRJXRAY_DB="${{PRJXRAY_DB:-/opt/prjxray-db/artix7}}"
+    PRJXRAY_DB="/opt/openxc7/share/nextpnr/external/prjxray-db/artix7"
+    if [ ! -d "$PRJXRAY_DB" ]; then
+        PRJXRAY_DB=$(find /opt/openxc7 -type d -name "artix7" | grep "prjxray-db" | head -n 1)
+    fi
     fasm2frames --part xc7a100tcsg324-1 --db-root "$PRJXRAY_DB" soc.fasm soc.frames
-    xc7frames2bit --part_file "$PRJXRAY_DB/xc7a100t/part.yaml" --frm_file soc.frames --output_file "nexys_a7_{cpu_name}.bit"
+    PART_YAML="$PRJXRAY_DB/xc7a100tcsg324-1/part.yaml"
+    xc7frames2bit --part_name xc7a100tcsg324-1 --part_file "$PART_YAML" --frm_file soc.frames --output_file "nexys_a7_{cpu_name}.bit"
     echo "SUCCESS: Generated nexys_a7_{cpu_name}.bit"
 else
-    echo "Notice: Yosys netlist generated (soc.json). Full .bit generation requires nextpnr-xilinx/openXC7."
+    echo "ERROR: Place & route did not generate soc.fasm"
+    exit 1
 fi
 """
 
@@ -329,6 +286,8 @@ def run_wsl_synthesis(
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             bufsize=1,
             universal_newlines=True,
         )

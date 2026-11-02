@@ -1,14 +1,44 @@
-# Ignore heavy downloaded toolchains
-toolchain/oss-cad-suite/
-toolchain/*.tgz
-toolchain/*.tar.gz
-toolchain/*.zip
-
-# Python caches
+# Python caches & runtime logs
 __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+crash_log.txt
 
-# Netlist temporary output
-build_soc_*/soc_netlist.json
+# PyInstaller & Dist Builds
+build/
+dist/
+installer_output/
+*.spec.bak
+*.lnk
+
+# Large Toolchain Binaries (GCC, iverilog, gtkwave, openFPGALoader >4GB)
+# Downloaded during setup or bundled in installer
+toolchain/
+!toolchain/.gitkeep
+
+# Intermediate Synthesis & Place-and-Route artifacts
+*.fasm
+*.frames
+soc.json
+soc_netlist.json
+*.vvp
+*.vcd
+build_soc_*/*.fasm
+build_soc_*/*.frames
+build_soc_*/soc.json
+build_soc_*/*.bit
+
+# Temporary testbenches & dumps
+tb_*.v
+tb_*.hex
+test_*.bin
+
+# Workspace temporary builds & duplicates
+workspace/*/build_soc_*
+workspace/*/bitstreams/
+workspace/*/custom_cpus/
+workspace/*/rtl_testbench_*/
+workspace/new-project/
+workspace/?/
+workspace//

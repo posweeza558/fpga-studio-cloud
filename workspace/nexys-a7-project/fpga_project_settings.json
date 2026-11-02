@@ -1,0 +1,7 @@
+{
+  "custom_cpus": [],
+  "custom_compilers": [],
+  "active_arch": "openmips (Nexys A7)",
+  "active_compiler": "mips_gcc",
+  "sim_speed": "5Hz"
+}

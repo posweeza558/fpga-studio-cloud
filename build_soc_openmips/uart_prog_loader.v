@@ -1,9 +1,6 @@
-// ==============================================================================
-// FPGA Studio â€” Hardware USB-UART Live Program Loader (115200 8-N-1 @ 25 MHz)
-// Protocol: "PROG" + uint32_le(word_count) + word_count * uint32_le(inst_word)
-// ==============================================================================
+// FPGA Studio — Hardware USB-UART Live Program Loader (115200 8-N-1 @ 25 MHz)
 module uart_prog_loader #(
-    parameter integer CLKS_PER_BIT = 217 // 25,000,000 Hz / 115,200 baud = 217
+    parameter integer CLKS_PER_BIT = 217
 ) (
     input  wire        clk,
     input  wire        rst,
@@ -17,14 +14,12 @@ module uart_prog_loader #(
     output wire [7:0]  rx_byte_data_o
 );
 
-    // 1. Double-flop synchronizer on UART RX pin
     reg rx_sync1, rx_sync2;
     always @(posedge clk) begin
         rx_sync1 <= uart_rx_i;
         rx_sync2 <= rx_sync1;
     end
 
-    // 2. 8-N-1 UART Byte Receiver
     localparam RX_IDLE  = 2'd0,
                RX_START = 2'd1,
                RX_DATA  = 2'd2,
@@ -97,7 +92,6 @@ module uart_prog_loader #(
         end
     end
 
-    // 3. "PROG" (IMEM) & "DMEM" (Data Memory) Packet State Machine
     localparam ST_M0   = 3'd0,
                ST_M1   = 3'd1,
                ST_M2   = 3'd2,
@@ -110,6 +104,7 @@ module uart_prog_loader #(
     reg [1:0]  sub_byte;
     reg [31:0] words_rem;
     reg [31:0] word_buf;
+    reg [11:0] next_addr;
     wire [31:0] next_word = {byte_val, word_buf[31:8]};
 
     always @(posedge clk or posedge rst) begin
@@ -119,6 +114,7 @@ module uart_prog_loader #(
             sub_byte       <= 2'd0;
             words_rem      <= 32'd0;
             word_buf       <= 32'd0;
+            next_addr      <= 12'd0;
             prog_busy_o    <= 1'b0;
             prog_we_o      <= 1'b0;
             prog_dmem_we_o <= 1'b0;
@@ -171,7 +167,7 @@ module uart_prog_loader #(
                         word_buf <= next_word;
                         if (sub_byte == 2'd3) begin
                             sub_byte    <= 2'd0;
-                            prog_addr_o <= is_dmem ? next_word[27:16] : 12'd0;
+                            next_addr   <= is_dmem ? next_word[27:16] : 12'd0;
                             if ((is_dmem ? {16'd0, next_word[15:0]} : next_word) == 32'd0) begin
                                 prog_busy_o <= 1'b0;
                                 st          <= ST_M0;
@@ -187,15 +183,16 @@ module uart_prog_loader #(
                         word_buf <= next_word;
                         if (sub_byte == 2'd3) begin
                             sub_byte       <= 2'd0;
+                            prog_addr_o    <= next_addr;
+                            next_addr      <= next_addr + 12'd1;
+                            prog_wdata_o   <= next_word;
                             prog_we_o      <= ~is_dmem;
                             prog_dmem_we_o <= is_dmem;
-                            prog_wdata_o   <= next_word;
                             if (words_rem <= 32'd1) begin
                                 prog_busy_o <= 1'b0;
                                 st          <= ST_M0;
                             end else begin
                                 words_rem   <= words_rem - 32'd1;
-                                prog_addr_o <= prog_addr_o + 12'd1;
                             end
                         end else begin
                             sub_byte <= sub_byte + 2'd1;

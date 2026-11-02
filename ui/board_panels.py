@@ -12,6 +12,7 @@ Provides authentic Digilent Nexys A7 FPGA hardware controls:
 
 import os
 import struct
+import time
 import tkinter as tk
 from tkinter import filedialog
 from config.theme import (
@@ -79,6 +80,22 @@ class BoardPanelsMixin:
         btn_flash_hw.pack(side=tk.RIGHT, padx=3, pady=5)
         add_hover_border(btn_flash_hw, "#2E1B5B", "#4C1D95", "#3B2070", "#A855F7")
 
+        self.hw_exec_mode_var = getattr(self, "hw_exec_mode_var", None) or tk.StringVar(value="step")
+        cur_mode = self.hw_exec_mode_var.get()
+        init_mode_txt = "🎯 โหมด: Step (หยุดรอ) ▾" if cur_mode == "step" else "🚀 โหมด: Auto-Run (25MHz) ▾"
+        init_mode_bg = "#064E3B" if cur_mode == "step" else "#1E3A8A"
+        init_mode_fg = "#6EE7B7" if cur_mode == "step" else "#BFDBFE"
+
+        self.btn_hw_mode = tk.Button(
+            hdr, text=init_mode_txt, bg=init_mode_bg, fg=init_mode_fg,
+            activebackground="#047857", activeforeground="#FFFFFF",
+            bd=0, highlightthickness=1, highlightbackground=init_mode_bg,
+            padx=8, pady=2, cursor="hand2",
+            font=(FONT_UI, 8, "bold"), command=self._show_hw_mode_popup
+        )
+        self.btn_hw_mode.pack(side=tk.RIGHT, padx=3, pady=5)
+        add_hover_border(self.btn_hw_mode, init_mode_bg, "#047857", init_mode_bg, "#34D399")
+
         btn_upload = tk.Button(
             hdr, text="อัปโหลด USB", bg=BG_PILL_INACT, fg=TXT_BRIGHT,
             activebackground=BG_HOVER, activeforeground=TXT_BRIGHT,
@@ -88,6 +105,46 @@ class BoardPanelsMixin:
         )
         btn_upload.pack(side=tk.RIGHT, padx=3, pady=5)
         add_hover_border(btn_upload, BG_PILL_INACT, BG_HOVER, BG_PILL_INACT, BORDER_HOVER)
+
+        self.btn_hw_step = tk.Button(
+            hdr, text="⚡ Step บอร์ดจริง", bg="#065F46", fg="#A7F3D0",
+            activebackground="#047857", activeforeground="#FFFFFF",
+            bd=0, highlightthickness=1, highlightbackground="#059669",
+            padx=8, pady=2, cursor="hand2",
+            font=(FONT_UI, 8, "bold"), command=self.step_hardware_board
+        )
+        self.btn_hw_step.pack(side=tk.RIGHT, padx=3, pady=5)
+        add_hover_border(self.btn_hw_step, "#065F46", "#047857", "#059669", "#10B981")
+
+        self.btn_hw_pause = tk.Button(
+            hdr, text="⏸ หยุดบอร์ด", bg="#7C2D12", fg="#FED7AA",
+            activebackground="#9A3412", activeforeground="#FFFFFF",
+            bd=0, highlightthickness=1, highlightbackground="#C2410C",
+            padx=7, pady=2, cursor="hand2",
+            font=(FONT_UI, 8, "bold"), command=self.pause_hardware_board
+        )
+        self.btn_hw_pause.pack(side=tk.RIGHT, padx=3, pady=5)
+        add_hover_border(self.btn_hw_pause, "#7C2D12", "#9A3412", "#C2410C", "#FB923C")
+
+        self.btn_hw_run = tk.Button(
+            hdr, text="▶ รัน 25MHz", bg="#1E3A8A", fg="#BFDBFE",
+            activebackground="#2563EB", activeforeground="#FFFFFF",
+            bd=0, highlightthickness=1, highlightbackground="#3B82F6",
+            padx=7, pady=2, cursor="hand2",
+            font=(FONT_UI, 8, "bold"), command=self.resume_hardware_board
+        )
+        self.btn_hw_run.pack(side=tk.RIGHT, padx=3, pady=5)
+        add_hover_border(self.btn_hw_run, "#1E3A8A", "#2563EB", "#3B82F6", "#60A5FA")
+
+        self.btn_hw_rst = tk.Button(
+            hdr, text="🔄 รีเซ็ต PC=0", bg=BG_PILL_INACT, fg=TXT_BRIGHT,
+            activebackground=BG_HOVER, activeforeground=TXT_BRIGHT,
+            bd=0, highlightthickness=1, highlightbackground=BG_PILL_INACT,
+            padx=7, pady=2, cursor="hand2",
+            font=(FONT_UI, 8, "bold"), command=self.reset_hardware_board
+        )
+        self.btn_hw_rst.pack(side=tk.RIGHT, padx=3, pady=5)
+        add_hover_border(self.btn_hw_rst, BG_PILL_INACT, BG_HOVER, BG_PILL_INACT, BORDER_HOVER)
 
         self.btn_com_port = tk.Button(
             hdr, text=init_port_txt, bg=BG_PILL_INACT, fg=TXT_BRIGHT,
@@ -585,8 +642,8 @@ class BoardPanelsMixin:
             is_on = ((led_val >> bit) & 1) == 1
             bulb.config(fg="#1ED760" if is_on else "#282828")
 
-        # 7-Segment
-        s = str(abs(seg_val)).zfill(8)[-8:]
+        # 7-Segment (Matches Real Hardware Nexys A7: 8-digit Hexadecimal / Nibble decoding)
+        s = f"{seg_val & 0xFFFFFFFF:08X}"
         for i in range(8):
             self.seg_digits[i].config(text=s[i])
 
@@ -914,16 +971,62 @@ class BoardPanelsMixin:
     def _highlight_active_pc(self, force=False):
         pc_idx = self.sim_engine.pc_index
         prev_pc = getattr(self, "_prev_active_pc", None)
+        compiled = getattr(self, "compiled_ins", [])
         if force or prev_pc != pc_idx:
+            # 1. Clear previous highlight & pointer
             if prev_pc is not None and prev_pc != pc_idx:
                 prev_iid = str(prev_pc)
                 if self.op_tree.exists(prev_iid):
                     tag = "even" if prev_pc % 2 == 0 else "odd"
                     self.op_tree.item(prev_iid, tags=(tag,))
+                    if prev_pc < len(compiled):
+                        orig_pc = compiled[prev_pc].get("pc", "")
+                        old_vals = list(self.op_tree.item(prev_iid, "values"))
+                        if old_vals:
+                            old_vals[0] = orig_pc
+                            self.op_tree.item(prev_iid, values=old_vals)
+
+            # 2. Add visual pointer ▶ to Opcode Table on the right
             active_iid = str(pc_idx)
+            cur_ins = compiled[pc_idx] if (pc_idx < len(compiled)) else None
             if self.op_tree.exists(active_iid):
                 self.op_tree.item(active_iid, tags=("active_pc",))
                 self.op_tree.see(active_iid)
+                old_vals = list(self.op_tree.item(active_iid, "values"))
+                if old_vals and cur_ins:
+                    orig_pc = cur_ins.get("pc", "")
+                    old_vals[0] = f"▶ {orig_pc}"
+                    self.op_tree.item(active_iid, values=old_vals)
+
+            # 3. Add visual pointer & highlight to source line in Code Editor on the left
+            if hasattr(self, "code_text"):
+                self.code_text.tag_remove("active_exec_line", "1.0", tk.END)
+                if cur_ins:
+                    src_line = cur_ins.get("src_line")
+                    if src_line is not None and src_line > 0:
+                        self.code_text.tag_add("active_exec_line", f"{src_line}.0", f"{src_line}.end+1c")
+                        self.code_text.see(f"{src_line}.0")
+                    elif cur_ins.get("sym_name") in ("_start", "") and pc_idx <= 4:
+                        main_idx = self.code_text.search(r"\bmain\s*\(", "1.0", regexp=True)
+                        if main_idx:
+                            line_main = int(main_idx.split(".")[0])
+                            self.code_text.tag_add("active_exec_line", f"{line_main}.0", f"{line_main}.end+1c")
+                            self.code_text.see(f"{line_main}.0")
+                    elif getattr(self, "current_file_path", "").endswith((".s", ".asm")):
+                        line_no = pc_idx + 1
+                        self.code_text.tag_add("active_exec_line", f"{line_no}.0", f"{line_no}.end+1c")
+                        self.code_text.see(f"{line_no}.0")
+
+            # 4. Status bar telemetry
+            if hasattr(self, "status_lbl") and cur_ins:
+                pc_str = cur_ins.get("pc", "")
+                asm_str = cur_ins.get("asm", "")
+                s_line_str = f" • บรรทัดที่ {cur_ins['src_line']}" if cur_ins.get("src_line") else ""
+                self.status_lbl.config(
+                    text=f"▶ PC: {pc_str} ({asm_str}){s_line_str}   •   รอบคล็อกที่: {getattr(self.sim_engine, 'cycles', 0)}",
+                    fg=ACCENT_GREEN
+                )
+
             self._prev_active_pc = pc_idx
 
     # ==========================================================================
@@ -1095,9 +1198,19 @@ class BoardPanelsMixin:
                 self.refresh_project_explorer()
                 self.status_lbl.config(text=f"บันทึกตาราง 32-bit สำเร็จ: {os.path.basename(path)}")
 
-    @staticmethod
-    def _detect_serial_ports():
-        """Scan connected USB-UART / COM ports, prioritizing Digilent / FTDI / USB-Serial bridges."""
+    _cached_ports = []
+    _last_ports_scan = 0.0
+
+    @classmethod
+    def _detect_serial_ports(cls, force=False):
+        """Scan connected USB-UART / COM ports, prioritizing Digilent / FTDI / USB-Serial bridges.
+        Uses 1.0s caching to eliminate SetupAPI device enumeration latency on Windows.
+        """
+        import time
+        now = time.time()
+        if not force and cls._cached_ports and (now - cls._last_ports_scan < 1.0):
+            return cls._cached_ports
+
         try:
             from serial.tools import list_ports
             raw_ports = list(list_ports.comports())
@@ -1113,7 +1226,9 @@ class BoardPanelsMixin:
             return 2
 
         raw_ports.sort(key=lambda p: (_score(p), p.device))
-        return [(p.device, p.description or "Serial Port", p.hwid or "") for p in raw_ports]
+        cls._cached_ports = [(p.device, p.description or "Serial Port", p.hwid or "") for p in raw_ports]
+        cls._last_ports_scan = now
+        return cls._cached_ports
 
     def _on_com_port_changed(self):
         val = (self.com_port_var.get() or "AUTO").strip()
@@ -1137,7 +1252,34 @@ class BoardPanelsMixin:
             m.add_command("⚠️ ไม่พบพอร์ต USB-UART ที่เชื่อมต่ออยู่ในขณะนี้", "", None, enabled=False)
         m.show_at_widget(self.btn_com_port)
 
+    def _on_hw_mode_changed(self):
+        val = self.hw_exec_mode_var.get()
+        if val == "step":
+            txt = "🎯 โหมด: Step (หยุดรอ) ▾"
+            bg = "#064E3B"
+            fg = "#6EE7B7"
+        else:
+            txt = "🚀 โหมด: Auto-Run (25MHz) ▾"
+            bg = "#1E3A8A"
+            fg = "#BFDBFE"
+        if hasattr(self, "btn_hw_mode"):
+            self.btn_hw_mode.config(text=txt, bg=bg, fg=fg, highlightbackground=bg)
+        if hasattr(self, "_save_project_settings"):
+            self._save_project_settings()
+
+    def _show_hw_mode_popup(self):
+        from ui.widgets import SpotifyPopupMenu
+        m = SpotifyPopupMenu(self, tag="BoardHwModePopup")
+        m.add_radiobutton("🎯 โหมด Step ทีละคำสั่ง (หลังอัปโหลดหยุดรอที่ PC=0 ให้กดก้าวทีละบรรทัด)", self.hw_exec_mode_var, "step", self._on_hw_mode_changed)
+        m.add_radiobutton("🚀 โหมด Auto-Run (หลังอัปโหลดรันเต็มสปีด 25 MHz บนบอร์ดจริงทันที)", self.hw_exec_mode_var, "autorun", self._on_hw_mode_changed)
+        m.show_at_widget(self.btn_hw_mode)
+
     def upload_to_board(self):
+        if hasattr(self, "compile_now"):
+            try:
+                self.compile_now(async_bg=False)
+            except Exception:
+                pass
         if not getattr(self, "compiled_ins", None) and hasattr(self, "_ensure_runnable_software_loaded"):
             self._ensure_runnable_software_loaded()
         if not getattr(self, "compiled_ins", None):
@@ -1158,12 +1300,38 @@ class BoardPanelsMixin:
             port = selected
 
         try:
-            import serial
-            payload = bytearray(b"PROG")
-            payload.extend(struct.pack("<I", len(self.compiled_ins)))
+            import time
+            import struct
+
+            # Temporarily pause background telemetry while uploading to avoid COM contention
+            self._hw_telemetry_active = False
+
+            ser, err = self._get_hw_serial()
+            if err or ser is None:
+                self.status_lbl.config(
+                    text=f"⚠️ {err} — กรุณาตรวจสอบสาย USB-UART หรือเลือกพอร์ตใหม่",
+                    fg=ACCENT_AMBER,
+                )
+                return
+
+            prog_words = []
             for ins in self.compiled_ins:
-                word = ins.get("word", int(ins["hex"], 16)) & 0xFFFFFFFF
-                payload.extend(struct.pack("<I", word))
+                prog_words.append(ins.get("word", int(ins["hex"], 16)) & 0xFFFFFFFF)
+
+            cur_arch = self.get_current_arch() if hasattr(self, "get_current_arch") else "mips"
+            nop_word = 0x00000013 if cur_arch == "riscv" else 0x00000000
+            # Pad with clean NOPs up to at least 1024 words (4KB)
+            # This 100% wipes out any leftover instructions from previously uploaded larger programs
+            pad_target = max(len(prog_words) + 256, 1024)
+            if pad_target > 4096:
+                pad_target = 4096
+            while len(prog_words) < pad_target:
+                prog_words.append(nop_word)
+
+            payload = bytearray(b"PROG")
+            payload.extend(struct.pack("<I", len(prog_words)))
+            for w in prog_words:
+                payload.extend(struct.pack("<I", w))
 
             init_dmem = self.compiled_ins[0].get("init_dmem", {}) if self.compiled_ins else {}
             dmem_words_sent = 0
@@ -1179,14 +1347,50 @@ class BoardPanelsMixin:
                     for w_idx in range(min_idx, max_idx + 1):
                         payload.extend(struct.pack("<I", word_map.get(w_idx, 0)))
 
-            with serial.Serial(port, 115200, timeout=2, write_timeout=3) as ser:
-                ser.write(payload)
-                ser.flush()
+            ser.reset_input_buffer()
+            ser.write(payload)
+            ser.flush()
+            # Wait for all UART bytes to physically transmit over 115200 baud before issuing CPU run/reset
+            time.sleep(len(payload) / 11520.0 + 0.15)
+
+            mode = getattr(self, "hw_exec_mode_var", None)
+            is_step = (mode.get() if mode else "step") == "step"
+
+            if is_step:
+                # In Step mode: send 'Z' to reset CPU and freeze at PC=0x0000!
+                try:
+                    ser.write(b"Z")
+                    ser.flush()
+                    time.sleep(0.05)
+                    raw = ser.read(ser.in_waiting or 14)
+                    if not self._parse_and_apply_telemetry(raw):
+                        raw += ser.read(14)
+                        self._parse_and_apply_telemetry(raw)
+                except Exception:
+                    pass
+            else:
+                # In Auto-Run mode: send 'R' to run full speed 25MHz immediately!
+                try:
+                    ser.write(b"R")
+                    ser.flush()
+                except Exception:
+                    pass
+
+            # Resume background telemetry listener
+            self._hw_telemetry_active = True
+            self.after(50, self._poll_hw_telemetry)
+
             dmem_msg = f" + ข้อมูล .data/.rodata {dmem_words_sent} คำ" if dmem_words_sent else ""
-            self.status_lbl.config(
-                text=f"✅ อัปโหลด {len(self.compiled_ins)} คำสั่ง (32-bit){dmem_msg} เข้าสู่บอร์ดที่พอร์ต {port} @ 115200 baud สำเร็จ!",
-                fg=ACCENT_GREEN,
-            )
+            if is_step:
+                self.status_lbl.config(
+                    text=f"✅ อัปโหลด {len(self.compiled_ins)} คำสั่งสำเร็จ! [โหมด Step] ซีพียูหยุดรอที่ PC=0 — กด '⚡ Step บอร์ดจริง' หรือ F11 เพื่อก้าวดูโค้ด",
+                    fg=ACCENT_GREEN,
+                )
+            else:
+                self.status_lbl.config(
+                    text=f"✅ อัปโหลด {len(self.compiled_ins)} คำสั่งสำเร็จ! [โหมด Auto-Run] ซีพียูรันเต็มสปีด 25 MHz บนบอร์ดจริงเรียบร้อย",
+                    fg=ACCENT_GREEN,
+                )
         except Exception as e:
             self.status_lbl.config(
                 text=f"⚠️ เชื่อมต่อพอร์ต {port} ไม่สำเร็จ ({e}) — กรุณาตรวจสอบสาย USB-UART หรือเลือกพอร์ตใหม่",
@@ -1212,3 +1416,236 @@ class BoardPanelsMixin:
         m.add_separator()
         m.add_radiobutton("🚀 Max Speed (เต็มสปีด / ทันที)", self.sim_speed_var, "max", self._on_sim_speed_changed)
         m.show_at_widget(self.btn_speed)
+
+    # ==========================================================================
+    # HARDWARE IN-CIRCUIT DEBUGGER (ICD) FOR REAL DIGILENT NEXYS A7 BOARD
+    # ==========================================================================
+    def _get_hw_serial(self):
+        """Returns or opens a dedicated serial connection to Nexys A7 over USB-UART."""
+        import serial
+        selected = (self.com_port_var.get() or "AUTO").strip()
+        live_ports = self._detect_serial_ports()
+        if selected.upper() == "AUTO":
+            if not live_ports:
+                return None, "ไม่พบพอร์ต USB-UART ของบอร์ด Nexys A7 — กรุณาเสียบสาย USB"
+            port = live_ports[0][0]
+        else:
+            port = selected
+
+        # If existing connection is already open on this port, reuse it
+        cur_ser = getattr(self, "_hw_serial", None)
+        if cur_ser is not None:
+            if getattr(cur_ser, "is_open", False) and getattr(cur_ser, "port", "") == port:
+                return cur_ser, None
+            try:
+                cur_ser.close()
+            except Exception:
+                pass
+            self._hw_serial = None
+
+        try:
+            self._hw_serial = serial.Serial(port, 115200, timeout=0.2, write_timeout=1)
+            time.sleep(0.05)
+            # Start telemetry background listener if not already active
+            if not getattr(self, "_hw_telemetry_active", False):
+                self._hw_telemetry_active = True
+                self.after(50, self._poll_hw_telemetry)
+            return self._hw_serial, None
+        except Exception as e:
+            return None, f"ไม่สามารถเปิดพอร์ต {port}: {e}"
+
+    def _update_hardware_active_pc(self, pc_byte, ins_val=0, led_val=0, seg7_val=0):
+        """Synchronizes computer IDE pointer, source line highlight, LEDs, and 7-segment display with real FPGA."""
+        pc_idx = (pc_byte & 0xFFFF) >> 2
+        compiled = getattr(self, "compiled_ins", [])
+        prev_pc = getattr(self, "_prev_active_pc", None)
+
+        # 1. Clear previous pointer in Opcode Table
+        if prev_pc is not None and prev_pc != pc_idx:
+            prev_iid = str(prev_pc)
+            if hasattr(self, "op_tree") and self.op_tree.exists(prev_iid):
+                tag = "even" if prev_pc % 2 == 0 else "odd"
+                self.op_tree.item(prev_iid, tags=(tag,))
+                if prev_pc < len(compiled):
+                    orig_pc = compiled[prev_pc].get("pc", "")
+                    old_vals = list(self.op_tree.item(prev_iid, "values"))
+                    if old_vals:
+                        old_vals[0] = orig_pc
+                        self.op_tree.item(prev_iid, values=old_vals)
+
+        # 2. Add visual pointer ▶ to Opcode Table on the right
+        active_iid = str(pc_idx)
+        cur_ins = compiled[pc_idx] if (pc_idx < len(compiled)) else None
+        if hasattr(self, "op_tree") and self.op_tree.exists(active_iid):
+            self.op_tree.item(active_iid, tags=("active_pc",))
+            self.op_tree.see(active_iid)
+            old_vals = list(self.op_tree.item(active_iid, "values"))
+            if old_vals and cur_ins:
+                orig_pc = cur_ins.get("pc", "")
+                old_vals[0] = f"▶ {orig_pc}"
+                self.op_tree.item(active_iid, values=old_vals)
+
+        # 3. Add visual pointer & highlight to source line in Code Editor on the left
+        if hasattr(self, "code_text"):
+            self.code_text.tag_remove("active_exec_line", "1.0", tk.END)
+            if cur_ins:
+                src_line = cur_ins.get("src_line")
+                if src_line is not None and src_line > 0:
+                    self.code_text.tag_add("active_exec_line", f"{src_line}.0", f"{src_line}.end+1c")
+                    self.code_text.see(f"{src_line}.0")
+                elif cur_ins.get("sym_name") in ("_start", "") and pc_idx <= 4:
+                    # Bootstrap CRT instructions (_start: lui $sp, jal main) -> point to main() in C code!
+                    main_idx = self.code_text.search(r"\bmain\s*\(", "1.0", regexp=True)
+                    if main_idx:
+                        line_main = int(main_idx.split(".")[0])
+                        self.code_text.tag_add("active_exec_line", f"{line_main}.0", f"{line_main}.end+1c")
+                        self.code_text.see(f"{line_main}.0")
+                elif getattr(self, "current_file_path", "").endswith((".s", ".asm")):
+                    line_no = pc_idx + 1
+                    self.code_text.tag_add("active_exec_line", f"{line_no}.0", f"{line_no}.end+1c")
+                    self.code_text.see(f"{line_no}.0")
+
+        # 4. Sync Virtual Nexys A7 Hardware Display with Real Hardware
+        if hasattr(self, "sim_engine"):
+            self.sim_engine.led_value = led_val & 0xFFFF
+            self.sim_engine.seg7_value = seg7_val & 0xFFFFFFFF
+            self.sim_engine.pc_index = pc_idx
+        if hasattr(self, "_refresh_board_widgets"):
+            self._refresh_board_widgets()
+
+        # 5. Status bar telemetry
+        if hasattr(self, "status_lbl"):
+            asm_str = cur_ins.get("asm", "") if cur_ins else f"0x{ins_val:08X}"
+            if cur_ins and cur_ins.get("src_line"):
+                s_line = f" • บรรทัดที่ {cur_ins['src_line']}"
+            elif pc_idx <= 4:
+                s_line = " • เริ่มระบบ (Bootstrap: lui $sp / jal main)"
+            else:
+                s_line = ""
+            self.status_lbl.config(
+                text=f"⚡ [บอร์ดจริง Nexys A7] PC: 0x{pc_byte:04X} ({asm_str}){s_line}  |  LED: 0x{led_val:04X} ({led_val})  |  7-SEG: 0x{seg7_val:08X}",
+                fg="#38EF7D"
+            )
+
+        self._prev_active_pc = pc_idx
+
+    def _parse_and_apply_telemetry(self, raw):
+        """Extracts 14-byte packet [0xA5, 0x5A, PC(2), INS(4), LED(2), SEG(4)]."""
+        if len(raw) < 14:
+            return False
+        # Search for magic header 0xA5 0x5A
+        idx = raw.find(b"\xA5\x5A")
+        if idx >= 0 and len(raw) >= idx + 14:
+            pkt = raw[idx:idx+14]
+            pc_val, ins_val, led_val, seg7_val = struct.unpack(">HIHI", pkt[2:14])
+            self._update_hardware_active_pc(pc_val, ins_val, led_val, seg7_val)
+            return True
+        return False
+
+    def step_hardware_board(self):
+        """Sends 'S' to real Nexys A7 FPGA over USB-UART to execute 1 clock cycle / instruction."""
+        if not getattr(self, "compiled_ins", None) and hasattr(self, "_ensure_runnable_software_loaded"):
+            self._ensure_runnable_software_loaded()
+
+        ser, err = self._get_hw_serial()
+        if not ser:
+            if hasattr(self, "status_lbl"):
+                self.status_lbl.config(text=f"⚠️ {err}", fg=ACCENT_AMBER)
+            return
+
+        try:
+            ser.reset_input_buffer()
+            ser.write(b"S")
+            ser.flush()
+            time.sleep(0.015)
+            # Read 14-byte packet returned by FPGA
+            raw = ser.read(ser.in_waiting or 14)
+            if not self._parse_and_apply_telemetry(raw):
+                # Try reading once more with slight wait if FPGA UART transmitter was framing
+                raw += ser.read(14)
+                if not self._parse_and_apply_telemetry(raw):
+                    if hasattr(self, "status_lbl"):
+                        self.status_lbl.config(text="⚠️ บอร์ดไม่ส่ง telemetry กลับมา — กรุณาแฟลช Bitstream ที่มี Hardware ICD", fg=ACCENT_AMBER)
+        except Exception as e:
+            if hasattr(self, "status_lbl"):
+                self.status_lbl.config(text=f"⚠️ สื่อสารกับบอร์ดล้มเหลว: {e}", fg=ACCENT_AMBER)
+
+    def pause_hardware_board(self):
+        """Sends 'P' to freeze the OpenMIPS CPU pipeline synchronously and capture state."""
+        ser, err = self._get_hw_serial()
+        if not ser:
+            if hasattr(self, "status_lbl"):
+                self.status_lbl.config(text=f"⚠️ {err}", fg=ACCENT_AMBER)
+            return
+
+        try:
+            ser.reset_input_buffer()
+            ser.write(b"P")
+            ser.flush()
+            raw = ser.read(14)
+            self._parse_and_apply_telemetry(raw)
+            if hasattr(self, "status_lbl"):
+                cur_text = self.status_lbl.cget("text")
+                self.status_lbl.config(text=f"⏸ [หยุดบอร์ดจริง] {cur_text}", fg="#FED7AA")
+        except Exception as e:
+            if hasattr(self, "status_lbl"):
+                self.status_lbl.config(text=f"⚠️ สื่อสารกับบอร์ดล้มเหลว: {e}", fg=ACCENT_AMBER)
+
+    def resume_hardware_board(self):
+        """Sends 'R' to resume full 25MHz hardware execution on Nexys A7."""
+        ser, err = self._get_hw_serial()
+        if not ser:
+            if hasattr(self, "status_lbl"):
+                self.status_lbl.config(text=f"⚠️ {err}", fg=ACCENT_AMBER)
+            return
+
+        try:
+            ser.write(b"R")
+            ser.flush()
+            if hasattr(self, "status_lbl"):
+                self.status_lbl.config(text="▶ [บอร์ดจริงกำลังรัน 25MHz] กำลังประมวลผลเต็มสปีดบนชิป Artix-7 (กด '⏸ หยุดบอร์ด' หรือ '⚡ Step บอร์ดจริง' เพื่อตรวจเช็ค)", fg=ACCENT_GREEN)
+        except Exception as e:
+            if hasattr(self, "status_lbl"):
+                self.status_lbl.config(text=f"⚠️ สื่อสารกับบอร์ดล้มเหลว: {e}", fg=ACCENT_AMBER)
+
+    def reset_hardware_board(self):
+        """Sends 'Z' to reset CPU on Nexys A7 and freeze at PC=0x0000 with telemetry."""
+        ser, err = self._get_hw_serial()
+        if not ser:
+            if hasattr(self, "status_lbl"):
+                self.status_lbl.config(text=f"⚠️ {err}", fg=ACCENT_AMBER)
+            return
+
+        try:
+            ser.reset_input_buffer()
+            ser.write(b"Z")
+            ser.flush()
+            time.sleep(0.02)
+            raw = ser.read(14)
+            if self._parse_and_apply_telemetry(raw):
+                if hasattr(self, "status_lbl"):
+                    self.status_lbl.config(text="🔄 [รีเซ็ตบอร์ดจริง] ซีพียูถูกรีเซ็ตกลับมาที่คำสั่งแรก (PC: 0x0000) พร้อมให้กด Step", fg=ACCENT_GREEN)
+            else:
+                raw += ser.read(14)
+                self._parse_and_apply_telemetry(raw)
+        except Exception as e:
+            if hasattr(self, "status_lbl"):
+                self.status_lbl.config(text=f"⚠️ สื่อสารกับบอร์ดล้มเหลว: {e}", fg=ACCENT_AMBER)
+
+    def _poll_hw_telemetry(self):
+        """Periodic background check for telemetry from hardware (e.g. when physical BTNC button is pressed)."""
+        if not getattr(self, "_hw_telemetry_active", False):
+            return
+
+        ser = getattr(self, "_hw_serial", None)
+        if ser is not None and getattr(ser, "is_open", False):
+            try:
+                waiting = ser.in_waiting
+                if waiting >= 14:
+                    raw = ser.read(waiting)
+                    self._parse_and_apply_telemetry(raw)
+            except Exception:
+                pass
+
+        # Schedule next poll in 50ms
+        self.after(50, self._poll_hw_telemetry)

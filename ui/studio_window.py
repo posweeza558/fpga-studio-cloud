@@ -204,6 +204,7 @@ class VSCodeFPGAStudio(tk.Tk, FramelessWindowMixin, SidebarPanelsMixin, BoardPan
         self.bind_all("<Control-Shift-P>", lambda e: self.open_rtl_verify_dialog())
         self.bind_all("<Control-Shift-p>", lambda e: self.open_rtl_verify_dialog())
         self.bind_all("<F7>", lambda e: self.open_fpga_programmer_dialog())
+        self.bind_all("<F11>", lambda e: self.step_hardware_board() if hasattr(self, "step_hardware_board") else None)
         self.bind_all("<Escape>", lambda e: SpotifyPopupMenu.close_active(), add="+")
         self.bind_all("<ButtonPress-1>", self._global_click_outside_menu, add="+")
         self._refresh_target_pills()
@@ -469,6 +470,7 @@ class VSCodeFPGAStudio(tk.Tk, FramelessWindowMixin, SidebarPanelsMixin, BoardPan
         self.code_text.tag_configure("comment", foreground=SYN_COMMENT, font=(FONT_UI, 10))
         self.code_text.tag_configure("search_hit", background="#3B2E00", foreground="#FFD43B")
         self.code_text.tag_configure("error_line", background="#3A1519", foreground="#FF948E")
+        self.code_text.tag_configure("active_exec_line", background="#1A402A", foreground="#38EF7D")
 
         self.code_text.bind("<Motion>", self._on_editor_mouse_motion)
         self.code_text.bind("<Leave>", lambda e: self._hide_error_hover_popup())
@@ -559,7 +561,7 @@ class VSCodeFPGAStudio(tk.Tk, FramelessWindowMixin, SidebarPanelsMixin, BoardPan
         self.op_tree.column("bin", width=255, anchor="center")
         self.op_tree.column("desc", width=215, anchor="w")
 
-        self.op_tree.tag_configure("active_pc", background="#143321", foreground=ACCENT_GREEN)
+        self.op_tree.tag_configure("active_pc", background="#1B4A2D", foreground="#38EF7D")
         self.op_tree.tag_configure("even", background=BG_EDITOR)
         self.op_tree.tag_configure("odd", background="#181818")
         self._setup_tree_copy(self.op_tree)
@@ -1166,6 +1168,25 @@ class VSCodeFPGAStudio(tk.Tk, FramelessWindowMixin, SidebarPanelsMixin, BoardPan
 
         tree.bind("<Button-3>", _show_tree_ctx)
         tree.bind("<Control-c>", lambda e: self._copy_selected_tree_row())
+        tree.bind("<<TreeviewSelect>>", self._on_op_tree_select)
+
+    def _on_op_tree_select(self, event=None):
+        sel = self.op_tree.selection()
+        if not sel:
+            return
+        iid = sel[0]
+        try:
+            idx = int(iid)
+            compiled = getattr(self, "compiled_ins", [])
+            if 0 <= idx < len(compiled):
+                cur = compiled[idx]
+                src_line = cur.get("src_line")
+                if src_line is not None and src_line > 0 and hasattr(self, "code_text"):
+                    self.code_text.tag_remove("active_exec_line", "1.0", tk.END)
+                    self.code_text.tag_add("active_exec_line", f"{src_line}.0", f"{src_line}.end+1c")
+                    self.code_text.see(f"{src_line}.0")
+        except Exception:
+            pass
 
     def _copy_selected_tree_row(self):
         sel = self.op_tree.selection()
@@ -2098,29 +2119,16 @@ class VSCodeFPGAStudio(tk.Tk, FramelessWindowMixin, SidebarPanelsMixin, BoardPan
             arch = self.get_current_arch()
             is_mips = (arch == "mips")
 
-            if ext in (".s", ".asm"):
-                asm_lines = code.splitlines()
-                self.compiled_ins = assemble_mips(asm_lines) if is_mips else assemble_riscv(asm_lines)
-            else:
-                asm_lines = compile_c_to_asm(code, arch=arch)
-                self.compiled_ins = assemble_mips(asm_lines) if is_mips else assemble_riscv(asm_lines)
+            comp_mode = self.compiler_mode_var.get()
+            is_asm_file = ext in (".s", ".asm")
+            is_cpp_file = ext in (".cpp", ".cc", ".cxx")
 
-            target_arch = "mips" if is_mips else "riscv"
-            self.compiled_raw_asm = "\n".join(asm_lines)
-            self.sim_engine.load_program(self.compiled_ins, raw_asm_text=self.compiled_raw_asm)
-            self.active_rom_filename = os.path.basename(sw_file)
-
-            for item in self.op_tree.get_children():
-                self.op_tree.delete(item)
-            pc_idx = self.sim_engine.pc_index
-            for idx, ins in enumerate(self.compiled_ins):
-                tag = "active_pc" if idx == pc_idx else ("even" if idx % 2 == 0 else "odd")
-                self.op_tree.insert(
-                    "", tk.END, iid=str(idx),
-                    values=(ins["pc"], ins["fmt"], ins["asm"], ins["hex"], ins.get("fields", ins.get("bin", "")), ins["desc"]),
-                    tags=(tag,)
-                )
+            res_tuple = self._execute_compiler_pipeline(
+                code, arch, is_mips, comp_mode, ext, is_asm_file, is_cpp_file
+            )
+            self._apply_compiled_output(sw_file, *res_tuple)
             self._update_peripheral_cards()
+            return
         except Exception as e:
             print("[Auto-Load Software ROM Error]:", e)
 

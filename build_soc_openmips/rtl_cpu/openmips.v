@@ -23,6 +23,7 @@
 
 module openmips (input wire clk,
                  input wire rst,
+                 input wire dbg_stall_i,
                  input wire[`RegBus] rom_data_i,  //存疑
                  output wire[`RegBus] rom_addr_o, //存疑
                  output wire rom_ce_o,
@@ -197,7 +198,7 @@ module openmips (input wire clk,
     //通用寄存器Regfile的例化
     regfile regfile1(.clk(clk),
     .rst(rst),
-    .we(wb_wreg_i),
+    .we(wb_wreg_i & (stall[5] == `NoStop)),
     .waddr(wb_wd_i),
     .wdata(wb_wdata_i),
     .re1(reg1_read),
@@ -357,7 +358,7 @@ module openmips (input wire clk,
     //ports
     .rst(rst),
     .clk(clk),
-    .we (wb_whilo_i),
+    .we (wb_whilo_i & (stall[5] == `NoStop)),
     .hi_i(wb_hi_i),
     .lo_i(wb_lo_i),
     .hi_o(hi),
@@ -370,6 +371,7 @@ module openmips (input wire clk,
     .rst(rst),
     .stallreq_from_id(stallreq_from_id),
     .stallreq_from_ex(stallreq_from_ex),
+    .stallreq_from_dbg(dbg_stall_i),
     .stall(stall)
     );
 

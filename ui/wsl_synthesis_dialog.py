@@ -218,7 +218,7 @@ class WSLSynthesisDialog(BaseFramelessWizardDialog):
             status = check_wsl_status()
 
             def update():
-                if status["installed"]:
+                if status["installed"] and status["distros"]:
                     distro = status.get("default_distro") or "Linux"
                     self.lbl_status_icon.config(text="🐧")
                     self.lbl_status_title.config(text=f"ตรวจพบ WSL ({distro}) พร้อมใช้งาน", fg=ACCENT_GREEN)
@@ -230,11 +230,20 @@ class WSLSynthesisDialog(BaseFramelessWizardDialog):
                     desc = f"Linux Distro: {distro} | เครื่องมือที่พบ: {', '.join(tool_desc) if tool_desc else 'พร้อมติดตั้ง/รันสคริปต์'}"
                     self.lbl_status_desc.config(text=desc)
                     self.btn_start.config(state=tk.NORMAL)
-                    self._log(f"✓ ตรวจพบ WSL: {distro}")
+                    self._log(f"✓ ตรวจพบ WSL Linux: {distro}")
+                elif status["installed"]:
+                    self.lbl_status_icon.config(text="⏳")
+                    self.lbl_status_title.config(text="WSL ติดตั้งแล้ว แต่กำลังรอติดตั้ง Ubuntu...", fg=ACCENT_WARN)
+                    self.lbl_status_desc.config(text="กรุณารอหน้าต่างสีดำ (cmd.exe) ดาวน์โหลดและติดตั้ง Ubuntu ให้เสร็จสิ้น")
+                    self.btn_install_wsl.config(text="⚡ ติดตั้ง Ubuntu")
+                    self.btn_install_wsl.pack(side=tk.RIGHT, padx=(0, 4))
+                    self.btn_start.config(state=tk.DISABLED)
+                    self._log("⏳ WSL ติดตั้งแล้ว — กำลังรอการติดตั้ง Linux Distribution (Ubuntu) ในหน้าต่างสีดำ")
                 else:
                     self.lbl_status_icon.config(text="⚠️")
                     self.lbl_status_title.config(text="เครื่องนี้ยังไม่ได้ติดตั้ง WSL (Linux)", fg=ACCENT_WARN)
                     self.lbl_status_desc.config(text="กดปุ่ม 'ติดตั้ง WSL (Ubuntu) อัตโนมัติ' ด้านขวา เพื่อเปิดใช้งาน Linux ในเครื่อง")
+                    self.btn_install_wsl.config(text="⚡ ติดตั้ง WSL (Ubuntu) อัตโนมัติ")
                     self.btn_install_wsl.pack(side=tk.RIGHT, padx=(0, 4))
                     self.btn_start.config(state=tk.DISABLED)
                     self._log("⚠️ เครื่องนี้ยังไม่ได้ติดตั้ง WSL — สามารถคลิกปุ่มสีส้มเพื่อติดตั้งได้ทันที")

@@ -1,6 +1,7 @@
 // ==============================================================================
 // FPGA Studio — Digilent Nexys A7-100T SoC Top Module (openmips)
 // Connects CPU Core + Reprogrammable 16KB IMEM + 16KB Byte-Lane DMEM + MMIO + UART
+// + Hardware In-Circuit Debugger (ICD) with Single-Step & Live State Telemetry
 // ==============================================================================
 module nexys_a7_soc_top (
     input  wire        CLK100MHZ,
@@ -25,7 +26,7 @@ module nexys_a7_soc_top (
     output reg         UART_RXD_OUT
 );
 
-    // 1. 25 MHz CPU System Clock Divider (ensures clean Artix-7 timing closure)
+    // 1. 25 MHz CPU System Clock Divider
     reg [1:0] clk_div = 2'd0;
     always @(posedge CLK100MHZ) clk_div <= clk_div + 2'd1;
     wire sys_clk = clk_div[1]; // 25 MHz
@@ -55,8 +56,6 @@ module nexys_a7_soc_top (
         .rx_byte_data_o  (rx_byte)
     );
 
-    wire cpu_rst = ext_rst | prog_busy;
-
     // 3. Reprogrammable 4096-word (16 KB) Instruction Memory
     (* ram_style = "distributed" *) reg [31:0] imem [0:4095];
     initial begin
@@ -72,7 +71,34 @@ module nexys_a7_soc_top (
             imem[prog_addr] <= prog_wdata;
     end
 
-    // 4. CPU Core Instantiation (openmips)
+    // 4. Hardware In-Circuit Debugger (ICD) State Machine & Signals
+    reg        dbg_mode = 1'b0;
+    reg        dbg_stall_reg = 1'b0;
+    wire       dbg_stall = dbg_stall_reg;
+    reg [2:0]  dbg_state = 3'd0;
+    reg        btnc_d1 = 1'b0, btnc_d2 = 1'b0;
+    wire       btnc_pulse = btnc_d1 && !btnc_d2;
+    reg        dbg_soft_rst = 1'b0;
+    reg [3:0]  dbg_rst_cnt = 4'd0;
+
+    reg [7:0]  dbg_pkt [0:13];
+    reg [3:0]  dbg_tx_idx = 4'd0;
+    reg        dbg_tx_active = 1'b0;
+
+    localparam DBG_IDLE     = 3'd0,
+               DBG_STEP     = 3'd1,
+               DBG_CAPTURE  = 3'd2,
+               DBG_TRANSMIT = 3'd3;
+
+    wire cmd_step  = rx_valid && (rx_byte == 8'h53); // 'S'
+    wire cmd_pause = rx_valid && (rx_byte == 8'h50); // 'P'
+    wire cmd_run   = rx_valid && (rx_byte == 8'h52); // 'R'
+    wire cmd_reset = rx_valid && (rx_byte == 8'h5A); // 'Z'
+    wire step_req  = cmd_step || (dbg_mode && btnc_pulse);
+
+    wire cpu_rst = ext_rst | prog_busy | dbg_soft_rst;
+
+    // 5. CPU Core Instantiation (openmips)
     wire [31:0] ram_addr;
     wire [31:0] ram_wdata;
     reg  [31:0] ram_rdata;
@@ -81,27 +107,28 @@ module nexys_a7_soc_top (
     wire [3:0]  ram_sel;
 
     openmips u_cpu (
-        .clk (sys_clk),
-        .rst (cpu_rst),
-        .rom_addr_o (rom_addr),
-        .rom_data_i (rom_data),
-        .rom_ce_o (rom_ce),
-        .ram_addr_o (ram_addr),
-        .ram_data_o (ram_wdata),
-        .ram_data_i (ram_rdata),
-        .ram_we_o (ram_we),
-        .ram_ce_o (ram_ce),
-        .ram_sel_o (ram_sel)
+        .clk         (sys_clk),
+        .rst         (cpu_rst),
+        .dbg_stall_i (dbg_stall),
+        .rom_addr_o  (rom_addr),
+        .rom_data_i  (rom_data),
+        .rom_ce_o    (rom_ce),
+        .ram_addr_o  (ram_addr),
+        .ram_data_o  (ram_wdata),
+        .ram_data_i  (ram_rdata),
+        .ram_we_o    (ram_we),
+        .ram_ce_o    (ram_ce),
+        .ram_sel_o   (ram_sel)
     );
 
-    // 5. 4096-word (16 KB) Byte-Lane Data Memory
+    // 6. 4096-word (16 KB) Byte-Lane Data Memory
     (* ram_style = "distributed" *) reg [31:0] dmem [0:4095];
     initial begin
         $readmemh("dmem_init.hex", dmem);
     end
 
     wire is_mmio = (ram_addr[31:24] == 8'hF0) || (ram_addr[31:24] == 8'hFF);
-    wire dmem_we = ram_ce && ram_we && !is_mmio;
+    wire dmem_we = ram_ce && ram_we && !is_mmio && !dbg_stall;
     wire [11:0] dmem_idx = ram_addr[13:2];
 
     always @(posedge sys_clk) begin
@@ -115,7 +142,7 @@ module nexys_a7_soc_top (
         end
     end
 
-    // 6. MMIO Peripherals & 115200-baud UART TX
+    // 7. MMIO Peripherals & 115200-baud UART TX
     reg [31:0] seg7_reg;
     reg [23:0] rgb_reg;
     reg [7:0]  rx_latched;
@@ -129,25 +156,128 @@ module nexys_a7_soc_top (
 
     wire [5:0] btn_bus = {ext_rst, BTND, BTNR, BTNL, BTNU, BTNC};
 
-    always @(posedge sys_clk or posedge cpu_rst) begin
-        if (cpu_rst) begin
-            LED          <= 16'd0;
-            seg7_reg     <= 32'd0;
-            rgb_reg      <= 24'd0;
-            rx_latched   <= 8'd0;
-            rx_has_byte  <= 1'b0;
-            UART_RXD_OUT <= 1'b1;
-            tx_busy      <= 1'b0;
-            tx_clk_cnt   <= 16'd0;
-            tx_bit_idx   <= 4'd0;
-            tx_frame     <= 10'h3FF;
+    reg prog_busy_d;
+    always @(posedge sys_clk) prog_busy_d <= prog_busy;
+    wire prog_done_pulse = prog_busy_d && !prog_busy;
+
+    always @(posedge sys_clk or posedge ext_rst) begin
+        if (ext_rst) begin
+            LED           <= 16'd0;
+            seg7_reg      <= 32'd0;
+            rgb_reg       <= 24'd0;
+            rx_latched    <= 8'd0;
+            rx_has_byte   <= 1'b0;
+            UART_RXD_OUT  <= 1'b1;
+            tx_busy       <= 1'b0;
+            tx_clk_cnt    <= 16'd0;
+            tx_bit_idx    <= 4'd0;
+            tx_frame      <= 10'h3FF;
+            btnc_d1       <= 1'b0;
+            btnc_d2       <= 1'b0;
+            dbg_mode      <= 1'b1; // Default to frozen Step mode!
+            dbg_stall_reg <= 1'b1; // Freeze CPU pipeline from Cycle 0!
+            dbg_state     <= DBG_IDLE;
+            dbg_tx_active <= 1'b0;
+            dbg_tx_idx    <= 4'd0;
+            dbg_soft_rst  <= 1'b0;
+            dbg_rst_cnt   <= 4'd0;
+        end else if (prog_busy || dbg_soft_rst) begin
+            LED           <= 16'd0;
+            seg7_reg      <= 32'd0;
+            rgb_reg       <= 24'd0;
+            dbg_mode      <= 1'b1;
+            dbg_stall_reg <= 1'b1;
+            dbg_state     <= DBG_IDLE;
+            if (dbg_rst_cnt > 4'd0) begin
+                dbg_rst_cnt <= dbg_rst_cnt - 4'd1;
+                if (dbg_rst_cnt == 4'd1) begin
+                    dbg_soft_rst <= 1'b0;
+                    dbg_state    <= DBG_CAPTURE;
+                end
+            end
         end else begin
+            btnc_d1 <= BTNC;
+            btnc_d2 <= btnc_d1;
+
             if (rx_valid) begin
                 rx_latched  <= rx_byte;
                 rx_has_byte <= 1'b1;
             end
 
-            // UART TX shifting
+            // When program upload finishes, immediately capture PC=0 and send telemetry!
+            if (prog_done_pulse) begin
+                dbg_mode      <= 1'b1;
+                dbg_stall_reg <= 1'b1;
+                dbg_state     <= DBG_CAPTURE;
+            end
+
+            // Debug Mode Control
+            if (cmd_run) begin
+                dbg_mode      <= 1'b0;
+                dbg_stall_reg <= 1'b0;
+            end else if (cmd_pause) begin
+                dbg_mode      <= 1'b1;
+            end
+
+            // Debug Reset Pulse
+            if (cmd_reset) begin
+                dbg_soft_rst <= 1'b1;
+                dbg_rst_cnt  <= 4'd12;
+                dbg_mode     <= 1'b1;
+            end
+
+            // Debug Stepper FSM
+            case (dbg_state)
+                DBG_IDLE: begin
+                    if (dbg_mode) begin
+                        dbg_stall_reg <= 1'b1; // Freeze CPU pipeline
+                        if (step_req) begin
+                            dbg_stall_reg <= 1'b0; // Pulse enable for 1 cycle!
+                            dbg_state     <= DBG_STEP;
+                        end else if (cmd_pause) begin
+                            dbg_state     <= DBG_CAPTURE;
+                        end
+                    end else begin
+                        dbg_stall_reg <= 1'b0; // Full speed 25 MHz
+                    end
+                end
+
+                DBG_STEP: begin
+                    dbg_stall_reg <= 1'b1; // Freeze CPU immediately
+                    dbg_state     <= DBG_CAPTURE;
+                end
+
+                DBG_CAPTURE: begin
+                    dbg_pkt[0]  <= 8'hA5;
+                    dbg_pkt[1]  <= 8'h5A;
+                    dbg_pkt[2]  <= rom_addr[15:8];
+                    dbg_pkt[3]  <= rom_addr[7:0];
+                    dbg_pkt[4]  <= rom_data[31:24];
+                    dbg_pkt[5]  <= rom_data[23:16];
+                    dbg_pkt[6]  <= rom_data[15:8];
+                    dbg_pkt[7]  <= rom_data[7:0];
+                    dbg_pkt[8]  <= LED[15:8];
+                    dbg_pkt[9]  <= LED[7:0];
+                    dbg_pkt[10] <= seg7_reg[31:24];
+                    dbg_pkt[11] <= seg7_reg[23:16];
+                    dbg_pkt[12] <= seg7_reg[15:8];
+                    dbg_pkt[13] <= seg7_reg[7:0];
+
+                    dbg_tx_idx    <= 4'd0;
+                    dbg_tx_active <= 1'b1;
+                    dbg_state     <= DBG_TRANSMIT;
+                end
+
+                DBG_TRANSMIT: begin
+                    if (!dbg_tx_active) begin
+                        dbg_state <= DBG_IDLE;
+                    end
+                end
+
+                default: dbg_state <= DBG_IDLE;
+            endcase
+
+            // UART TX Shifter & Multiplexer
             if (tx_busy) begin
                 UART_RXD_OUT <= tx_frame[0];
                 if (tx_clk_cnt == 16'd216) begin
@@ -162,22 +292,29 @@ module nexys_a7_soc_top (
                 end
             end else begin
                 UART_RXD_OUT <= 1'b1;
+                if (dbg_tx_active) begin
+                    tx_frame      <= {1'b1, dbg_pkt[dbg_tx_idx], 1'b0};
+                    tx_busy       <= 1'b1;
+                    tx_clk_cnt    <= 16'd0;
+                    tx_bit_idx    <= 4'd0;
+                    if (dbg_tx_idx == 4'd13)
+                        dbg_tx_active <= 1'b0;
+                    else
+                        dbg_tx_idx    <= dbg_tx_idx + 4'd1;
+                end else if (ram_ce && ram_we && (ram_addr == 32'hF0000010) && !dbg_stall) begin
+                    tx_frame   <= {1'b1, ram_wdata[7:0], 1'b0};
+                    tx_busy    <= 1'b1;
+                    tx_clk_cnt <= 16'd0;
+                    tx_bit_idx <= 4'd0;
+                end
             end
 
-            // MMIO Writes
-            if (ram_ce && ram_we) begin
+            // MMIO Writes (Protected against writing while frozen in debug stall)
+            if (ram_ce && ram_we && !dbg_stall) begin
                 case (ram_addr)
                     32'hF0000000:  LED      <= ram_wdata[15:0];
                     32'hF0000008: seg7_reg <= ram_wdata;
                     32'hF0000018:  rgb_reg  <= ram_wdata[23:0];
-                    32'hF0000010: begin
-                        if (!tx_busy) begin
-                            tx_frame   <= {1'b1, ram_wdata[7:0], 1'b0};
-                            tx_busy    <= 1'b1;
-                            tx_clk_cnt <= 16'd0;
-                            tx_bit_idx <= 4'd0;
-                        end
-                    end
                     default: ;
                 endcase
             end
@@ -188,7 +325,7 @@ module nexys_a7_soc_top (
         end
     end
 
-    // MMIO & Data Memory Read Mux
+    // 8. MMIO & Data Memory Read Mux
     always @(*) begin
         if (!ram_ce) begin
             ram_rdata = 32'd0;
@@ -208,7 +345,7 @@ module nexys_a7_soc_top (
         end
     end
 
-    // 7. 8-Digit Multiplexed 7-Segment Display Driver
+    // 9. 8-Digit Multiplexed 7-Segment Display Driver
     assign SEG_DP = 1'b1;
     reg [16:0] scan_cnt = 17'd0;
     always @(posedge sys_clk) scan_cnt <= scan_cnt + 17'd1;
@@ -237,7 +374,7 @@ module nexys_a7_soc_top (
         endcase
     end
 
-    // 8. PWM Driver for RGB LEDs (LD16, LD17 — 25% max duty cycle per Digilent spec)
+    // 10. PWM Driver for RGB LEDs
     reg [9:0] pwm_cnt = 10'd0;
     always @(posedge sys_clk) pwm_cnt <= pwm_cnt + 10'd1;
     assign LED16_R = (pwm_cnt < {2'b00, rgb_reg[23:20], 4'd0});
