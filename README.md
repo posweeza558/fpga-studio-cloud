@@ -1,8 +1,8 @@
 # ⚡ FPGA Studio (Spotify Dark Edition)
 
-[![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11-0078D6?logo=windows)](https://github.com/posweeza558/fpga-studio-cloud)
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11-0078D6?logo=windows)](https://github.com/posweeza558/fpga-studio)
 [![Target FPGA](https://img.shields.io/badge/FPGA-Digilent%20Nexys%20A7--100T-red)](https://digilent.com/reference/programmable-logic/nexys-a7/start)
-[![Architecture](https://img.shields.io/badge/ISA-OpenMIPS%2032--bit%20%7C%20RISC--V%20RV32IM-1DB954)](https://github.com/posweeza558/fpga-studio-cloud)
+[![Architecture](https://img.shields.io/badge/ISA-OpenMIPS%2032--bit%20%7C%20RISC--V%20RV32IM-1DB954)](https://github.com/posweeza558/fpga-studio)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 **FPGA Studio** is an all-in-one, zero-dependency Integrated Development & Educational EDA Studio for designing, programming, simulating, and deploying 32-bit RISC CPU systems onto FPGA hardware.
@@ -111,7 +111,7 @@ fpga_studio/
 ## 📥 Download & Installation
 
 For most users, simply download the pre-packaged Windows installer and run it:
-* 🚀 **[Download FPGA Studio v4.2 Installer (.exe)](https://github.com/posweeza558/fpga-studio-cloud/releases/latest)** *(Self-contained, includes offline GCC toolchains, bitstreams, and simulators)*
+* 🚀 **[Download FPGA Studio v4.2 Installer (.exe)](https://github.com/posweeza558/fpga-studio/releases/latest)** *(Self-contained, includes offline GCC toolchains, bitstreams, and simulators)*
 
 ---
 
@@ -120,8 +120,8 @@ For most users, simply download the pre-packaged Windows installer and run it:
 If you want to modify or contribute to the source code:
 1. Clone the repository:
    ```bash
-   git clone https://github.com/posweeza558/fpga-studio-cloud.git
-   cd fpga-studio-cloud
+   git clone https://github.com/posweeza558/fpga-studio.git
+   cd fpga-studio
    ```
 2. Install Python dependencies:
    ```bash
